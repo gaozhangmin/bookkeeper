@@ -143,6 +143,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     private final long maxReadAheadBytesSize;
 
     private final Counter flushExecutorTime;
+    private final LedgerDirsManager ledgerDirsManager;
 
     public SingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
             LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, StatsLogger statsLogger,
@@ -163,6 +164,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
         readCacheMaxSize = readCacheSize;
         this.readAheadCacheBatchSize = readAheadCacheBatchSize;
+        this.ledgerDirsManager = ledgerDirsManager;
 
         // Do not attempt to perform read-ahead more than half the total size of the cache
         maxReadAheadBytesSize = readCacheMaxSize / 2;
@@ -829,7 +831,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     public void flush() throws IOException {
         Checkpoint cp = checkpointSource.newCheckpoint();
         checkpoint(cp);
-        checkpointSource.checkpointComplete(cp, true);
+        checkpointSource.checkpointComplete(cp, true, ledgerDirsManager);
     }
 
     @Override

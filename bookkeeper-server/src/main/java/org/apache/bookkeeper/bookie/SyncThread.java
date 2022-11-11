@@ -149,7 +149,7 @@ class SyncThread implements Checkpointer {
 
         log.info("Flush ledger storage at checkpoint {}.", checkpoint);
         try {
-            checkpointSource.checkpointComplete(checkpoint, false);
+            checkpointSource.checkpointComplete(checkpoint, false, null);
         } catch (IOException e) {
             log.error("Exception marking checkpoint as complete", e);
             dirsListener.allDisksFull(true);
@@ -175,7 +175,7 @@ class SyncThread implements Checkpointer {
         }
 
         try {
-            checkpointSource.checkpointComplete(checkpoint, true);
+            checkpointSource.checkpointComplete(checkpoint, true, null);
         } catch (IOException e) {
             log.error("Exception marking checkpoint as complete", e);
             dirsListener.allDisksFull(true);

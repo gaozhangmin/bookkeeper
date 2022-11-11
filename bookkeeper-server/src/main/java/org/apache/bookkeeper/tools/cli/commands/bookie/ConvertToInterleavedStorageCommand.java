@@ -103,7 +103,9 @@ public class ConvertToInterleavedStorageCommand extends BookieCommand<ConvertToI
             }
 
             @Override
-            public void checkpointComplete(Checkpoint checkpoint, boolean compact) {}
+            public void checkpointComplete(Checkpoint checkpoint,
+                                           boolean compact,
+                                           LedgerDirsManager ledgerDirsManager) {}
         };
         Checkpointer checkpointer = new Checkpointer() {
             @Override

@@ -263,7 +263,7 @@ public class SyncThreadTest {
         }
 
         @Override
-        public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+        public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
                 throws IOException {
         }
     }

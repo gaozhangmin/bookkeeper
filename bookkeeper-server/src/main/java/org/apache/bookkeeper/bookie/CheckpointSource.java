@@ -89,7 +89,9 @@ public interface CheckpointSource {
      * @param compact
      *          Flag to compact old checkpoints.
      */
-    void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException;
+    void checkpointComplete(Checkpoint checkpoint,
+                            boolean compact,
+                            LedgerDirsManager ledgerDirsManager) throws IOException;
 
     CheckpointSource DEFAULT = new CheckpointSource() {
             @Override
@@ -98,6 +100,8 @@ public interface CheckpointSource {
             }
 
             @Override
-            public void checkpointComplete(Checkpoint checkpoint, boolean compact) {}
+            public void checkpointComplete(Checkpoint checkpoint,
+                                           boolean compact,
+                                           LedgerDirsManager ledgerDirsManager) {}
         };
 }

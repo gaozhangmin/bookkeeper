@@ -24,6 +24,7 @@ package org.apache.bookkeeper.bookie;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.JOURNAL_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_INDEX_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_LEDGER_SCOPE;
+import static org.apache.bookkeeper.bookie.Journal.MAX_LOG_ID;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -371,8 +372,8 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 }
 
                 @Override
-                public void checkpointComplete(Checkpoint checkpoint, boolean compact)
-                        throws IOException {
+                public void checkpointComplete(Checkpoint checkpoint, boolean compact,
+                                               LedgerDirsManager ledgerDirsManager) throws IOException {
                 }
             });
         ledgerStorage.setCheckpointer(Checkpointer.NULL);
@@ -607,7 +608,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
             journalId >= markedLog.getLogFileId());
         // last log mark may be missed due to no sync up before
         // validate filtered log ids only when we have markedLogId
-        if (markedLog.getLogFileId() > 0) {
+        if (markedLog.getLogFileId() > 0 && markedLog.getLogFileId() != MAX_LOG_ID) {
             if (logs.size() == 0 || logs.get(0) != markedLog.getLogFileId()) {
                 throw new IOException("Recovery log " + markedLog.getLogFileId() + " is missing");
             }
@@ -1140,6 +1141,11 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
     @VisibleForTesting
     public BookieStateManager getStateManager() {
         return (BookieStateManager) this.stateManager;
+    }
+
+    @VisibleForTesting
+    public List<Journal> getJournals() {
+        return this.journals;
     }
 
     public ByteBufAllocator getAllocator() {

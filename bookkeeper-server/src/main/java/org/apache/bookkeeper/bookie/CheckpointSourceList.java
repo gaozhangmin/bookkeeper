@@ -42,7 +42,8 @@ public class CheckpointSourceList implements CheckpointSource {
     }
 
     @Override
-    public void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException {
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
+        throws IOException {
         if (checkpoint == Checkpoint.MAX || checkpoint == Checkpoint.MIN) {
             return;
         }
@@ -51,7 +52,7 @@ public class CheckpointSourceList implements CheckpointSource {
         CheckpointList checkpointList = (CheckpointList) checkpoint;
 
         checkArgument(checkpointList.source == this);
-        checkpointList.checkpointComplete(compact);
+        checkpointList.checkpointComplete(compact, ledgerDirsManager);
     }
 
     private static class CheckpointList implements Checkpoint {
@@ -66,9 +67,9 @@ public class CheckpointSourceList implements CheckpointSource {
             }
         }
 
-        private void checkpointComplete(boolean compact) throws IOException {
+        private void checkpointComplete(boolean compact, LedgerDirsManager ledgerDirsManager) throws IOException {
             for (int i = 0; i < source.checkpointSourcesList.size(); i++) {
-                source.checkpointSourcesList.get(i).checkpointComplete(checkpoints.get(i), compact);
+                source.checkpointSourcesList.get(i).checkpointComplete(checkpoints.get(i), compact, ledgerDirsManager);
             }
         }
 
