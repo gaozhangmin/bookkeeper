@@ -73,6 +73,8 @@
                   <include>org.apache.bookkeeper:bookkeeper-server</include>
                   <include>org.apache.bookkeeper:circe-checksum</include>
                   <include>org.apache.bookkeeper.stats:bookkeeper-stats-api</include>
+                  <include>org.apache.pulsar:pulsar-zookeeper-utils</include>
+                  <include>org.apache.pulsar:pulsar-common</include>
                 </includes>
               </artifactSet>
               <relocations>
