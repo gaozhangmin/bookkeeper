@@ -19,26 +19,26 @@
 # */
 
 # Set JAVA_HOME here to override the environment setting
-# JAVA_HOME=
+JAVA_HOME=/usr/java/jdk-11.0.2
 
 ########################################
 # default settings for bookkeeper
 ########################################
 
 # Configuration file of settings used in bookie server
-# BOOKIE_CONF=
+BOOKIE_CONF=${BOOKIE_CONF:-"$BK_HOME/conf/bk_server.conf"}
 
 # Configuration file of settings used in zookeeper server
 # BOOKIE_ZK_CONF=
 
 # Extra options to be passed to the jvm
-# BOOKIE_EXTRA_OPTS=
+BOOKIE_EXTRA_OPTS="${BOOKIE_EXTRA_OPTS:-"-Dio.netty.leakDetectionLevel=disabled -Dio.netty.recycler.maxCapacityPerThread=4096"}"
 
 # Add extra paths to the bookkeeper classpath
 # BOOKIE_EXTRA_CLASSPATH=
 
 # Folder where the Bookie server PID file should be stored
-# BOOKIE_PID_DIR=
+BOOKIE_PID_DIR=/home/hadoop/cluster-data/logs
 
 # Wait time before forcefully kill the Bookie server instance, if the stop is not successful
 # BOOKIE_STOP_TIMEOUT=
@@ -57,7 +57,7 @@
 # BOOKIE_LOG_CONF=
 
 # Logs location
-# BOOKIE_LOG_DIR=
+BOOKIE_LOG_DIR=/home/hadoop/cluster-data/logs
 
 # Log file name
 # BOOKIE_LOG_FILE="bookkeeper.log"
@@ -70,9 +70,9 @@
 # BookKeeper JVM memory options
 #################################
 
-# BOOKIE_MAX_HEAP_MEMORY=1g
-# BOOKIE_MIN_HEAP_MEMORY=1g
-# BOOKIE_MAX_DIRECT_MEMORY=2g
+BOOKIE_MAX_HEAP_MEMORY=10g
+BOOKIE_MIN_HEAP_MEMORY=10g
+BOOKIE_MAX_DIRECT_MEMORY=70g
 # BOOKIE_MEM_OPTS=
 
 # JVM GC options

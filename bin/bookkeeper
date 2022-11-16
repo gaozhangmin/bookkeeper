@@ -23,8 +23,14 @@ set -e
 BINDIR=`dirname "$0"`
 BK_HOME=`cd ${BINDIR}/..;pwd`
 
-source ${BK_HOME}/bin/common.sh
-
+if [ -f $BK_HOME/conf/bkenv.sh ]
+then
+ source $BK_HOME/conf/bkenv.sh
+fi
+if [ -f ${BK_HOME}/bin/common.sh ]
+then
+  source ${BK_HOME}/bin/common.sh
+fi
 # default variables
 DEFAULT_CONF=${BK_HOME}/conf/bk_server.conf
 DEFAULT_ZK_CONF=${BK_HOME}/conf/zookeeper.conf
@@ -143,7 +149,7 @@ BOOKIE_CLASSPATH="`dirname $BOOKIE_LOG_CONF`:$BOOKIE_CLASSPATH"
 
 # Build the OPTS
 BOOKIE_OPTS=$(build_bookie_opts)
-GC_OPTS=$(build_bookie_jvm_opts ${BOOKIE_LOG_DIR} "gc_%p.log")
+GC_OPTS=$(build_bookie_jvm_opts ${BOOKIE_LOG_DIR} "pulsar_bookie_gc_%p.log")
 NETTY_OPTS=$(build_netty_opts)
 LOGGING_OPTS=$(build_logging_opts ${BOOKIE_LOG_CONF} ${BOOKIE_ROOT_LOG_LEVEL} ${BOOKIE_ROOT_LOG_APPENDER} ${BOOKIE_LOG_DIR} ${BOOKIE_LOG_FILE})
 

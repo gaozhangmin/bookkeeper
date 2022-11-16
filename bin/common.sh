@@ -48,6 +48,24 @@ else
   echo "JMX disabled by user request" >&2
 fi
 
+BINDIR=${BK_BINDIR:-"`dirname "$0"`"}
+BK_HOME=${BK_HOME:-"`cd ${BINDIR}/..;pwd`"}
+BK_CONFDIR=${BK_HOME}/conf
+DEFAULT_LOG_CONF=${BK_CONFDIR}/log4j2.xml
+
+if [ -f $BK_HOME/conf/bkenv.sh ]
+then
+ source $BK_HOME/conf/bkenv.sh
+fi
+if [ -f $BK_HOME/conf/nettyenv.sh ]
+then
+ source $BK_HOME/conf/nettyenv.sh
+fi
+if [ -f $BK_HOME/conf/bk_cli_env.sh ]
+then
+ source $BK_HOME/conf/bk_cli_env.sh
+fi
+
 # Check for the java to use
 if [[ -z ${JAVA_HOME} ]]; then
   JAVA=$(which java)
@@ -60,15 +78,6 @@ if [[ -z ${JAVA_HOME} ]]; then
 else
   JAVA=${JAVA_HOME}/bin/java
 fi
-
-BINDIR=${BK_BINDIR:-"`dirname "$0"`"}
-BK_HOME=${BK_HOME:-"`cd ${BINDIR}/..;pwd`"}
-BK_CONFDIR=${BK_HOME}/conf
-DEFAULT_LOG_CONF=${BK_CONFDIR}/log4j2.xml
-
-source ${BK_CONFDIR}/nettyenv.sh
-source ${BK_CONFDIR}/bkenv.sh
-source ${BK_CONFDIR}/bk_cli_env.sh
 
 detect_jdk8() {
 
@@ -87,9 +96,16 @@ USING_JDK8=$(detect_jdk8)
 
 if [ "$USING_JDK8" -ne "1" ]; then
    DEFAULT_BOOKIE_GC_OPTS="-XX:+UseG1GC \
-    -XX:MaxGCPauseMillis=10 \
-    -XX:+ParallelRefProcEnabled \
-    -XX:+DisableExplicitGC"
+   -XX:MaxGCPauseMillis=200 \
+   -XX:+ParallelRefProcEnabled \
+   -XX:+UnlockExperimentalVMOptions \
+   -XX:+DoEscapeAnalysis \
+   -XX:InitiatingHeapOccupancyPercent=20
+   -XX:G1HeapRegionSize=16m \
+   -XX:+ExplicitGCInvokesConcurrent \
+   -XX:-ResizePLAB \
+   -XX:+HeapDumpOnOutOfMemoryError
+   -XX:HeapDumpPath=/home/hadoop/cluster-data/logs"
    DEFAULT_BOOKIE_GC_LOGGING_OPTS=""
 else
   DEFAULT_BOOKIE_GC_OPTS="-XX:+UseG1GC \

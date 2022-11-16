@@ -83,7 +83,7 @@ echo ${BOOKIE_LOG_CONF}
 
 # Build the OPTS
 BOOKIE_OPTS=$(build_bookie_opts)
-GC_OPTS=$(build_bookie_jvm_opts ${BOOKIE_LOG_DIR} "gc_%p.log")
+GC_OPTS=$(build_bookie_jvm_opts ${BOOKIE_LOG_DIR} "pulsar_bookie_gc_%p.log")
 NETTY_OPTS=$(build_netty_opts)
 LOGGING_OPTS=$(build_logging_opts ${BOOKIE_LOG_CONF} ${BOOKIE_ROOT_LOG_LEVEL} ${BOOKIE_ROOT_LOG_APPENDER} ${BOOKIE_LOG_DIR} ${BOOKIE_LOG_FILE})
 
