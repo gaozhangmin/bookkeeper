@@ -276,27 +276,27 @@ public class MockLedgerStorage implements LedgerStorage {
     }
 
     public void suspendMinorGC() {
-        CompactableLedgerStorage.super.suspendMinorGC();
+        LedgerStorage.super.suspendMinorGC();
     }
 
     public void suspendMajorGC() {
-        CompactableLedgerStorage.super.suspendMajorGC();
+        LedgerStorage.super.suspendMajorGC();
     }
 
     public void resumeMinorGC() {
-        CompactableLedgerStorage.super.resumeMinorGC();
+        LedgerStorage.super.resumeMinorGC();
     }
 
     public void resumeMajorGC() {
-        CompactableLedgerStorage.super.suspendMajorGC();
+        LedgerStorage.super.suspendMajorGC();
     }
 
     public boolean isMajorGcSuspended() {
-        return CompactableLedgerStorage.super.isMajorGcSuspended();
+        return LedgerStorage.super.isMajorGcSuspended();
     }
 
     public boolean isMinorGcSuspended() {
-        return CompactableLedgerStorage.super.isMinorGcSuspended();
+        return LedgerStorage.super.isMinorGcSuspended();
     }
 
     @Override
