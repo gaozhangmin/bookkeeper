@@ -38,7 +38,7 @@ BOOKIE_EXTRA_OPTS="${BOOKIE_EXTRA_OPTS:-"-Dio.netty.leakDetectionLevel=disabled 
 # BOOKIE_EXTRA_CLASSPATH=
 
 # Folder where the Bookie server PID file should be stored
-BOOKIE_PID_DIR=/home/hadoop/cluster-data/logs
+BOOKIE_PID_DIR=/home/hadoop/cluster-data/pids
 
 # Wait time before forcefully kill the Bookie server instance, if the stop is not successful
 # BOOKIE_STOP_TIMEOUT=
