@@ -19,7 +19,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import com.google.common.util.concurrent.RateLimiter;
 import io.netty.buffer.ByteBuf;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,7 +52,7 @@ public class LedgerChecker {
     public final BookieClient bookieClient;
     public final BookieWatcher bookieWatcher;
 
-    private final RateLimiter rateLimiter;
+    final Semaphore semaphore;
 
     static class InvalidFragmentException extends Exception {
         private static final long serialVersionUID = 1467201276417062353L;
@@ -80,6 +79,7 @@ public class LedgerChecker {
         @Override
         public void readEntryComplete(int rc, long ledgerId, long entryId,
                 ByteBuf buffer, Object ctx) {
+            releasePermit();
             if (rc == BKException.Code.OK) {
                 if (numEntries.decrementAndGet() == 0
                         && !completed.getAndSet(true)) {
@@ -156,23 +156,30 @@ public class LedgerChecker {
         bookieClient = client;
         bookieWatcher = watcher;
         if (inFlightReadEntryNum > 0) {
-            rateLimiter = RateLimiter.create(inFlightReadEntryNum);
+            semaphore = new Semaphore(inFlightReadEntryNum);
         } else {
-            rateLimiter = null;
+            semaphore = null;
         }
-
     }
 
     /**
-     * Acquires a permit from rate limiter,
+     * Acquires a permit from permit manager,
      * blocking until all are available.
      */
-    public void acquirePermit() {
-        if (null != rateLimiter) {
-            rateLimiter.acquire(1);
+    public void acquirePermit() throws InterruptedException {
+        if (null != semaphore) {
+            semaphore.acquire(1);
         }
     }
 
+    /**
+     * Release a given permit.
+     */
+    public void releasePermit() {
+        if (null != semaphore) {
+            semaphore.release();
+        }
+    }
 
     /**
      * Verify a ledger fragment to collect bad bookies.
@@ -312,6 +319,7 @@ public class LedgerChecker {
         @Override
         public void readEntryComplete(int rc, long ledgerId, long entryId,
                                       ByteBuf buffer, Object ctx) {
+            releasePermit();
             if (BKException.Code.NoSuchEntryException != rc && BKException.Code.NoSuchLedgerExistsException != rc
                     && BKException.Code.NoSuchLedgerExistsOnMetadataServerException != rc) {
                 entryMayExist.set(true);
@@ -417,6 +425,12 @@ public class LedgerChecker {
             // Check for the case that no last confirmed entry has been set
             if (curEntryId == lastEntry) {
                 final long entryToRead = curEntryId;
+
+                final CompletableFuture<Void> future = new CompletableFuture<>();
+                future.whenCompleteAsync((re, ex) -> {
+                    checkFragments(fragments, cb, percentageOfLedgerFragmentToBeVerified);
+                });
+
                 final EntryExistsCallback eecb = new EntryExistsCallback(lh.getLedgerMetadata().getWriteQuorumSize(),
                                               new GenericCallback<Boolean>() {
                                                   @Override
@@ -424,17 +438,20 @@ public class LedgerChecker {
                                                       if (result) {
                                                           fragments.add(lastLedgerFragment);
                                                       }
-                                                      checkFragments(fragments, cb,
-                                                              percentageOfLedgerFragmentToBeVerified);
+                                                      future.complete(null);
                                                   }
                                               });
 
                 DistributionSchedule.WriteSet writeSet = lh.getDistributionSchedule().getWriteSet(entryToRead);
                 for (int i = 0; i < writeSet.size(); i++) {
-                    acquirePermit();
-                    BookieId addr = curEnsemble.get(writeSet.get(i));
-                    bookieClient.readEntry(addr, lh.getId(), entryToRead,
-                            eecb, null, BookieProtocol.FLAG_NONE);
+                    try {
+                        acquirePermit();
+                        BookieId addr = curEnsemble.get(writeSet.get(i));
+                        bookieClient.readEntry(addr, lh.getId(), entryToRead,
+                                eecb, null, BookieProtocol.FLAG_NONE);
+                    } catch (InterruptedException e) {
+                        LOG.error("InterruptedException when checking entry : {}", entryToRead, e);
+                    }
                 }
                 writeSet.recycle();
                 return;
