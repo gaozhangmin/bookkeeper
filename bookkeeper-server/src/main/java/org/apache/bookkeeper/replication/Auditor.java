@@ -147,7 +147,6 @@ public class Auditor implements AutoCloseable {
     private LedgerManager ledgerManager;
     private LedgerUnderreplicationManager ledgerUnderreplicationManager;
     private final ScheduledExecutorService executor;
-    private final ExecutorService ledgerCheckerExecutor;
     private List<String> knownBookies = new ArrayList<String>();
     private final String bookieIdentifier;
     private volatile Future<?> auditTask;
@@ -503,14 +502,6 @@ public class Auditor implements AutoCloseable {
                     return t;
                 }
             });
-        ledgerCheckerExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "AuditorBookie-LedgerChecker-" + bookieIdentifier);
-                t.setDaemon(true);
-                return t;
-            }
-        });
     }
 
     private void initialize(ServerConfiguration conf, BookKeeper bkc)
@@ -1382,18 +1373,16 @@ public class Auditor implements AutoCloseable {
                     if (Code.OK == rc) {
                         // BookKeeperClientWorker-OrderedExecutor threads should not execute LedgerChecker#checkLedger
                         // as this can lead to deadlocks
-                        ledgerCheckerExecutor.execute(() -> {
-                            checker.checkLedger(lh,
-                                    // the ledger handle will be closed after checkLedger is done.
-                                    new ProcessLostFragmentsCb(lh, callback),
-                                    conf.getAuditorLedgerVerificationPercentage());
-                            // we collect the following stats to get a measure of the
-                            // distribution of a single ledger within the bk cluster
-                            // the higher the number of fragments/bookies, the more distributed it is
-                            numFragmentsPerLedger.registerSuccessfulValue(lh.getNumFragments());
-                            numBookiesPerLedger.registerSuccessfulValue(lh.getNumBookies());
-                            numLedgersChecked.inc();
-                        });
+                        checker.checkLedger(lh,
+                                // the ledger handle will be closed after checkLedger is done.
+                                new ProcessLostFragmentsCb(lh, callback),
+                                conf.getAuditorLedgerVerificationPercentage());
+                        // we collect the following stats to get a measure of the
+                        // distribution of a single ledger within the bk cluster
+                        // the higher the number of fragments/bookies, the more distributed it is
+                        numFragmentsPerLedger.registerSuccessfulValue(lh.getNumFragments());
+                        numBookiesPerLedger.registerSuccessfulValue(lh.getNumBookies());
+                        numLedgersChecked.inc();
                     } else if (Code.NoSuchLedgerExistsOnMetadataServerException == rc) {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Ledger {} was deleted before we could check it", ledgerId);
@@ -2130,15 +2119,10 @@ public class Auditor implements AutoCloseable {
     public void shutdown() {
         LOG.info("Shutting down auditor");
         executor.shutdown();
-        ledgerCheckerExecutor.shutdown();
         try {
             while (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
                 LOG.warn("Executor not shutting down, interrupting");
                 executor.shutdownNow();
-            }
-            while (!ledgerCheckerExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                LOG.warn("Executor for ledger checker not shutting down, interrupting");
-                ledgerCheckerExecutor.shutdownNow();
             }
             if (ownAdmin) {
                 admin.close();
