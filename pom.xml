@@ -213,7 +213,7 @@
     <servlet-api.version>4.0.0</servlet-api.version>
     <rxjava.version>3.0.1</rxjava.version>
     <awaitility.version>4.0.3</awaitility.version>
-    <pulsar.version>2.9.4</pulsar.version>
+    <pulsar.version>2.9.4.2</pulsar.version>
   </properties>
 
   <!-- dependency definitions -->
