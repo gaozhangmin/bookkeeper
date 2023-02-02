@@ -35,6 +35,14 @@ import static org.powermock.api.mockito.PowerMockito.whenNew;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -49,6 +57,7 @@ import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.test.TestStatsProvider;
+import org.apache.bookkeeper.util.IOUtils;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -184,6 +193,41 @@ public class BookieJournalForceTest {
         forceWriteThreadSuspendedLatch.countDown();
 
         journal.shutdown();
+    }
+
+    public class LastLogMark1 {
+        private final LogMark curMark;
+
+        LastLogMark1(long logId, long logPosition) {
+            this.curMark = new LogMark(logId, logPosition);
+        }
+
+        void setCurLogMark(long logId, long logPosition) {
+            curMark.setLogMark(logId, logPosition);
+        }
+
+
+
+        public LogMark getCurMark() {
+            return curMark;
+        }
+
+        @Override
+        public String toString() {
+            return curMark.toString();
+        }
+    }
+
+    @Test
+    public void test1() throws Exception {
+        Map<String, LastLogMark1> map = new HashMap<>();
+        map.put("1", new LastLogMark1(1, 1));
+        map.put("2", new LastLogMark1(1, 2));
+        map.put("3", new LastLogMark1(0, 3));
+        map.put("6", new LastLogMark1(0, 2));
+        map.put("4", new LastLogMark1(2, 0));
+        Optional<LastLogMark1> aa = map.values().stream().min((m1, m2) -> m1.getCurMark().compare(m2.getCurMark()));
+        System.out.println("aaaa");
     }
 
     @Test

@@ -40,9 +40,13 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -680,6 +684,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
 
     public static final long MAX_LOG_ID = Long.MAX_VALUE;
     private final LastLogMark lastLogMark = new LastLogMark(MAX_LOG_ID, MAX_LOG_ID);
+    private final Map<String, LastLogMark> logMarkLedgerDirs = new ConcurrentHashMap<>();
 
     private static final String LAST_MARK_DEFAULT_NAME = "lastMark";
 
@@ -844,7 +849,17 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
         mark.rollLog(mark, ledgerDirsManager);
         if (compact) {
             // list the journals that have been marked
-            List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
+            List<Long> logs;
+            if (ledgerDirsManager != null) {
+                logMarkLedgerDirs.put(ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), mark);
+                LastLogMark minLogMark = logMarkLedgerDirs.values().stream().min((m1, m2)
+                        -> m1.getCurMark().compare(m2.getCurMark())
+                ).get();
+                logs = listJournalIds(journalDirectory, new JournalRollingFilter(minLogMark));
+            } else {
+                logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
+            }
+
             // keep MAX_BACKUP_JOURNALS journal files before marked journal
             if (logs.size() >= maxBackupJournals) {
                 int maxIdx = logs.size() - maxBackupJournals;
