@@ -238,13 +238,7 @@ public class LedgerChecker {
             if (lastStored != LedgerHandle.INVALID_ENTRY_ID) {
                 throw new InvalidFragmentException();
             }
-
-            if (bookieWatcher.isBookieUnavailable(fragment.getAddress(bookieIndex))) {
-                // fragment is on this bookie, but already know it's unavailable, so skip the call
-                cb.operationComplete(BKException.Code.BookieHandleNotAvailableException, fragment);
-            } else {
-                cb.operationComplete(BKException.Code.OK, fragment);
-            }
+            cb.operationComplete(BKException.Code.OK, fragment);
         } else if (bookieWatcher.isBookieUnavailable(fragment.getAddress(bookieIndex))) {
             // fragment is on this bookie, but already know it's unavailable, so skip the call
             cb.operationComplete(BKException.Code.BookieHandleNotAvailableException, fragment);
