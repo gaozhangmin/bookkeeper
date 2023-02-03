@@ -34,12 +34,18 @@
             <PatternLayout pattern="%d{ISO8601} - %-5p [%t:%C{1}@%L][%ndc] - %m%n"/>
         </File>
         <RollingFile name="ROLLINGFILE" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}-%d{yyyy-MM-dd-HH}-%i.log.gz">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n "/>
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
                 <SizeBasedTriggeringPolicy size="200 MB"/>
             </Policies>
-            <DefaultRolloverStrategy max="100"/>
+            <DefaultRolloverStrategy max="100">
+                <Delete basePath="${sys:bookkeeper.log.dir}" maxDepth="2">
+                    <IfFileName glob="${sys:bookkeeper.log.file}-*.log.gz">
+                        <IfLastModified age="P60D"/>
+                    </IfFileName>
+                </Delete>
+            </DefaultRolloverStrategy>
         </RollingFile>
     </Appenders>
     <Loggers>
