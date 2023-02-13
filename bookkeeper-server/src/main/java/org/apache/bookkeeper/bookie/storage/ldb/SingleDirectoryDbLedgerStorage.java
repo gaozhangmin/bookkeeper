@@ -267,8 +267,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     }
 
     @Override
-    public void forceGC(Boolean forceMajor, Boolean forceMinor) {
-        gcThread.enableForceGC(forceMajor, forceMinor);
+    public void forceGC(Boolean forceMajor, Boolean forceMinor,
+                        Double majorCompactionThreshold, Double minorCompactionThreshold,
+                        Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+        gcThread.enableForceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
+                majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }
 
     @Override

@@ -71,9 +71,16 @@ public class TriggerGCService implements HttpEndpointService {
                 Map<String, Object> configMap = JsonUtil.fromJson(requestBody, HashMap.class);
                 Boolean forceMajor = (Boolean) configMap.getOrDefault("forceMajor", null);
                 Boolean forceMinor = (Boolean) configMap.getOrDefault("forceMinor", null);
-                bookieServer.getBookie().getLedgerStorage().forceGC(forceMajor, forceMinor);
+                Double majorCompactionThreshold = (Double) configMap.getOrDefault("majorCompactionThreshold", null);
+                Double minorCompactionThreshold = (Double) configMap.getOrDefault("minorCompactionThreshold", null);
+                Long majorCompactionMaxTimeMillis = Long.valueOf((Integer) configMap.getOrDefault(
+                        "majorCompactionMaxTimeMillis", null));
+                Long minorCompactionMaxTimeMillis = Long.valueOf((Integer) configMap.getOrDefault(
+                        "minorCompactionMaxTimeMillis", null));
+                bookieServer.getBookie().getLedgerStorage().forceGC(forceMajor, forceMinor,
+                        majorCompactionThreshold, minorCompactionThreshold,
+                        majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             }
-
             String output = "Triggered GC on BookieServer: " + bookieServer.toString();
             String jsonResponse = JsonUtil.toJson(output);
             if (LOG.isDebugEnabled()) {

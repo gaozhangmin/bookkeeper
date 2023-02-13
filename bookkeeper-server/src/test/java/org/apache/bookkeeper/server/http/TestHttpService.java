@@ -794,6 +794,15 @@ public class TestHttpService extends BookKeeperClusterTestCase {
         HttpServiceRequest request2 = new HttpServiceRequest(null, HttpServer.Method.PUT, null);
         HttpServiceResponse response2 = triggerGCService.handle(request2);
         assertEquals(HttpServer.StatusCode.OK.getValue(), response2.getStatusCode());
+
+
+        //3, PUT, should return OK
+        String putBody4 = "{\"forceMajor\": true, \"forceMinor\": true, \"majorCompactionThreshold\":0.4,"
+                + "\"minorCompactionThreshold\":0.4, \"majorCompactionMaxTimeMillis\": 20000, "
+                + "\"minorCompactionMaxTimeMillis\": 10000}";
+        HttpServiceRequest request3 = new HttpServiceRequest(putBody4, HttpServer.Method.PUT, null);
+        HttpServiceResponse response3 = triggerGCService.handle(request3);
+        assertEquals(HttpServer.StatusCode.OK.getValue(), response3.getStatusCode());
     }
 
     @Test

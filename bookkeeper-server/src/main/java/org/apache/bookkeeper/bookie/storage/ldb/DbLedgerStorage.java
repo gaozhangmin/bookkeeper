@@ -430,8 +430,12 @@ public class DbLedgerStorage implements LedgerStorage {
     }
 
     @Override
-    public void forceGC(Boolean forceMajor, Boolean forceMinor) {
-        ledgerStorageList.stream().forEach(s -> s.forceGC(forceMajor, forceMinor));
+    public void forceGC(Boolean forceMajor, Boolean forceMinor,
+                        Double majorCompactionThreshold, Double minorCompactionThreshold,
+                        Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+        ledgerStorageList.stream().forEach(s -> s.forceGC(forceMajor, forceMinor,
+                majorCompactionThreshold, minorCompactionThreshold,
+                majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis));
     }
 
     @Override

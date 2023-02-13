@@ -366,7 +366,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // disable forceMajor and forceMinor
         majorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
-        getGCThread().triggerGC(true, true, true).get();
+        getGCThread().triggerGC(true, true, true, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         majorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
         assertEquals(majorCompactionCntBeforeGC, majorCompactionCntAfterGC);
@@ -375,7 +376,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // enable forceMajor and forceMinor
         majorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         majorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
         assertEquals(majorCompactionCntBeforeGC + 1, majorCompactionCntAfterGC);
@@ -384,7 +386,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // enable forceMajor and disable forceMinor
         majorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
-        getGCThread().triggerGC(true, false, true).get();
+        getGCThread().triggerGC(true, false, true, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         majorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
         assertEquals(majorCompactionCntBeforeGC + 1, majorCompactionCntAfterGC);
@@ -393,7 +396,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // disable forceMajor and enable forceMinor
         majorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntBeforeGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
-        getGCThread().triggerGC(true, true, false).get();
+        getGCThread().triggerGC(true, true, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         majorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMajorCompactionCounter();
         minorCompactionCntAfterGC = getGCThread().getGarbageCollectionStatus().getMinorCompactionCounter();
         assertEquals(majorCompactionCntBeforeGC, majorCompactionCntAfterGC);
@@ -725,7 +729,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         }
 
         LOG.info("Finished deleting the ledgers contains most entries.");
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
 
         assertEquals(lastMajorCompactionTime, getGCThread().lastMajorCompactionTime);
         assertTrue(getGCThread().lastMinorCompactionTime > lastMinorCompactionTime);
@@ -744,17 +749,20 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // Now, let's mark E1 as flushed, as its ledger L1 has been deleted already. In this case, the GC algorithm
         // should consider it for deletion.
         getGCThread().entryLogger.recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(1L);
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 1.log that should have been compacted in ledgerDirectory: "
                 + tmpDirs.getDirs().get(0), TestUtils.hasNoneLogFiles(tmpDirs.getDirs().get(0), 1));
 
         // Once removed the ledger L0, then deleting E0 is fine (only if it has been flushed).
         bkc.deleteLedger(lhs[0].getId());
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 0.log that should not have been compacted in ledgerDirectory: "
                 + tmpDirs.getDirs().get(0), TestUtils.hasAllLogFiles(tmpDirs.getDirs().get(0), 0));
         getGCThread().entryLogger.recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(0L);
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 0.log that should have been compacted in ledgerDirectory: "
                 + tmpDirs.getDirs().get(0), TestUtils.hasNoneLogFiles(tmpDirs.getDirs().get(0), 0));
     }
@@ -872,7 +880,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         bkc.deleteLedger(lhs[2].getId());
 
         LOG.info("Finished deleting the ledgers contains most entries.");
-        getGCThread().triggerGC(true, false, false).get();
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
 
         // after garbage collection, major compaction should not be executed
         assertEquals(lastMajorCompactionTime, getGCThread().lastMajorCompactionTime);
@@ -1412,7 +1421,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         bkc.deleteLedger(lhs[2].getId());
         LOG.info("Finished deleting the ledgers contains most entries.");
 
-        getGCThread().triggerGC(true, false, false);
+        getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
+                baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis());
         getGCThread().throttler.cancelledAcquire();
         waitUntilTrue(() -> {
             try {

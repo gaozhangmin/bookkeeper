@@ -271,8 +271,11 @@ public class MockLedgerStorage implements LedgerStorage {
     }
 
     @Override
-    public void forceGC(Boolean forceMajor, Boolean forceMinor) {
-        LedgerStorage.super.forceGC(forceMajor, forceMinor);
+    public void forceGC(Boolean forceMajor, Boolean forceMinor,
+                        Double majorCompactionThreshold, Double minorCompactionThreshold,
+                        Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+        LedgerStorage.super.forceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
+                majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }
 
     public void suspendMinorGC() {

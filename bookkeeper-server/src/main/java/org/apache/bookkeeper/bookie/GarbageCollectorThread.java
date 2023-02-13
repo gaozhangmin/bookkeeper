@@ -292,16 +292,28 @@ public class GarbageCollectorThread extends SafeRunnable {
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: {}", Thread.currentThread().getName());
             triggerGC(true, suspendMajorCompaction.get(),
-                      suspendMinorCompaction.get());
+                      suspendMinorCompaction.get(), majorCompactionThreshold, minorCompactionThreshold,
+                    majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
         }
     }
 
-    public void enableForceGC(Boolean forceMajor, Boolean forceMinor) {
+    public void enableForceGC(Boolean forceMajor, Boolean forceMinor,
+                              Double majorCompactionThreshold, Double minorCompactionThreshold,
+                              Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
         if (forceGarbageCollection.compareAndSet(false, true)) {
-            LOG.info("Forced garbage collection triggered by thread: {}, forceMajor: {}, forceMinor: {}",
-                Thread.currentThread().getName(), forceMajor, forceMinor);
+            LOG.info("Forced garbage collection triggered by thread: {}, forceMajor: {}, forceMinor: {}, "
+                            + "majorCompactionThreshold :{}, minorCompactionThreshold: {}, "
+                            + "majorCompactionMaxTimeMillis: {}, minorCompactionMaxTimeMillis: {}",
+                    Thread.currentThread().getName(), forceMajor, forceMinor, majorCompactionThreshold,
+                    minorCompactionThreshold, majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             triggerGC(true, forceMajor == null ? suspendMajorCompaction.get() : !forceMajor,
-                forceMinor == null ? suspendMinorCompaction.get() : !forceMinor);
+                forceMinor == null ? suspendMinorCompaction.get() : !forceMinor,
+                    majorCompactionThreshold == null ? this.majorCompactionThreshold : majorCompactionThreshold,
+                    minorCompactionThreshold == null ? this.minorCompactionThreshold : minorCompactionThreshold,
+                    majorCompactionMaxTimeMillis == null ? this.majorCompactionMaxTimeMillis :
+                            majorCompactionMaxTimeMillis,
+                    minorCompactionMaxTimeMillis == null ? this.minorCompactionMaxTimeMillis :
+                            minorCompactionMaxTimeMillis);
         }
     }
 
@@ -314,9 +326,15 @@ public class GarbageCollectorThread extends SafeRunnable {
 
     Future<?> triggerGC(final boolean force,
                         final boolean suspendMajor,
-                        final boolean suspendMinor) {
+                        final boolean suspendMinor,
+                        final double majorCompactionThreshold,
+                        final double minorCompactionThreshold,
+                        final long majorCompactionMaxTimeMillis,
+                        final long minorCompactionMaxTimeMillis) {
         return gcExecutor.submit(() -> {
-                runWithFlags(force, suspendMajor, suspendMinor);
+                runWithFlags(force, suspendMajor, suspendMinor,
+                        majorCompactionThreshold, minorCompactionThreshold,
+                        majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             });
     }
 
@@ -326,7 +344,9 @@ public class GarbageCollectorThread extends SafeRunnable {
         final boolean suspendMinor = suspendMinorCompaction.get();
 
         return gcExecutor.submit(() -> {
-                runWithFlags(force, suspendMajor, suspendMinor);
+                runWithFlags(force, suspendMajor, suspendMinor,
+                        majorCompactionThreshold, minorCompactionThreshold,
+                        majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             });
     }
 
@@ -396,7 +416,9 @@ public class GarbageCollectorThread extends SafeRunnable {
         boolean suspendMajor = suspendMajorCompaction.get();
         boolean suspendMinor = suspendMinorCompaction.get();
 
-        runWithFlags(force, suspendMajor, suspendMinor);
+        runWithFlags(force, suspendMajor, suspendMinor,
+                majorCompactionThreshold, minorCompactionThreshold,
+                majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
 
         if (force) {
             // only set force to false if it had been true when the garbage
@@ -405,7 +427,9 @@ public class GarbageCollectorThread extends SafeRunnable {
         }
     }
 
-    public void runWithFlags(boolean force, boolean suspendMajor, boolean suspendMinor) {
+    public void runWithFlags(boolean force, boolean suspendMajor, boolean suspendMinor,
+                             double majorCompactionThreshold, double minorCompactionThreshold,
+                             long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         long threadStart = MathUtils.nowInNano();
         if (force) {
             LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
@@ -800,13 +824,14 @@ public class GarbageCollectorThread extends SafeRunnable {
 
     public GarbageCollectionStatus getGarbageCollectionStatus() {
         return GarbageCollectionStatus.builder()
-            .forceCompacting(forceGarbageCollection.get())
-            .majorCompacting(majorCompacting.get())
-            .minorCompacting(minorCompacting.get())
-            .lastMajorCompactionTime(lastMajorCompactionTime)
-            .lastMinorCompactionTime(lastMinorCompactionTime)
-            .majorCompactionCounter(gcStats.getMajorCompactionCounter().get())
-            .minorCompactionCounter(gcStats.getMinorCompactionCounter().get())
-            .build();
+                .ledgerDir(ledgerDirsManager.getAllLedgerDirs().get(0).getParent())
+                .forceCompacting(forceGarbageCollection.get())
+                .majorCompacting(majorCompacting.get())
+                .minorCompacting(minorCompacting.get())
+                .lastMajorCompactionTime(lastMajorCompactionTime)
+                .lastMinorCompactionTime(lastMinorCompactionTime)
+                .majorCompactionCounter(gcStats.getMajorCompactionCounter().get())
+                .minorCompactionCounter(gcStats.getMinorCompactionCounter().get())
+                .build();
     }
 }
