@@ -24,7 +24,7 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 import static com.google.common.base.Preconditions.checkState;
 //CHECKSTYLE.OFF: IllegalImport
 //CHECKSTYLE.OFF: ImportOrder
-import static io.netty.util.internal.PlatformDependent.maxDirectMemory;
+import static io.netty.util.internal.PlatformDependent.estimateMaxDirectMemory;
 //CHECKSTYLE.ON: IllegalImport
 //CHECKSTYLE.ON: ImportOrder
 
@@ -178,9 +178,9 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
         if (dbConfigType == DbConfigType.EntryLocation) {
             /* Set default RocksDB block-cache size to 10% / numberOfLedgers of direct memory, unless override */
             int ledgerDirsSize = conf.getLedgerDirNames().length;
-            long defaultRocksDBBlockCacheSizeBytes = maxDirectMemory() / ledgerDirsSize / 10;
+            long defaultRocksDBBlockCacheSizeBytes = estimateMaxDirectMemory() / 10;
             long blockCacheSize = DbLedgerStorage.getLongVariableOrDefault(conf, ROCKSDB_BLOCK_CACHE_SIZE,
-                defaultRocksDBBlockCacheSizeBytes);
+                defaultRocksDBBlockCacheSizeBytes) / ledgerDirsSize;
 
             long writeBufferSizeMB = conf.getInt(ROCKSDB_WRITE_BUFFER_SIZE_MB, 64);
             long sstSizeMB = conf.getInt(ROCKSDB_SST_SIZE_MB, 64);
