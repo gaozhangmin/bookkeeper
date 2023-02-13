@@ -324,19 +324,25 @@ public class LedgerMetadataIndex implements Closeable {
 
     public void removeDeletedLedgers() throws IOException {
         LongWrapper key = LongWrapper.get();
+        final byte[] startKey = new byte[key.array.length];
 
         int deletedLedgers = 0;
         while (!pendingDeletedLedgers.isEmpty()) {
             long ledgerId = pendingDeletedLedgers.poll();
             key.set(ledgerId);
             ledgersDb.delete(key.array);
+            if (deletedLedgers++ == 0) {
+                System.arraycopy(key.array, 0, startKey, 0, startKey.length);
+            }
         }
 
         if (log.isDebugEnabled()) {
             log.debug("Persisting deletes of ledgers {}", deletedLedgers);
         }
-
         ledgersDb.sync();
+        if (deletedLedgers != 0) {
+            ledgersDb.compact(startKey, key.array);
+        }
         key.recycle();
     }
 
