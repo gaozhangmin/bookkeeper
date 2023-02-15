@@ -573,7 +573,8 @@ public class GarbageCollectorThread extends SafeRunnable {
      */
     @VisibleForTesting
     void doCompactEntryLogs(double threshold, long maxTimeMillis) throws EntryLogMetadataMapException {
-        LOG.info("Do compaction to compact those files lower than {}", threshold);
+        LOG.info("LedgerDir:{}. Do compaction to compact those files lower than {}",
+                ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), threshold);
 
         final int numBuckets = 10;
         int[] entryLogUsageBuckets = new int[numBuckets];
@@ -607,8 +608,9 @@ public class GarbageCollectorThread extends SafeRunnable {
         });
 
         LOG.info(
-                "Compaction: entry log usage buckets before compaction [10% 20% 30% 40% 50% 60% 70% 80% 90% 100%] = {}",
-                entryLogUsageBuckets);
+                "LedgerDir: {}. Compaction: entry log usage buckets before compaction"
+                        + "[10% 20% 30% 40% 50% 60% 70% 80% 90% 100%] = {}",
+                ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), entryLogUsageBuckets);
 
         final int maxBucket = calculateUsageIndex(numBuckets, threshold);
         stopCompaction:
@@ -658,8 +660,9 @@ public class GarbageCollectorThread extends SafeRunnable {
             }
         }
         LOG.info(
-                "Compaction: entry log usage buckets[10% 20% 30% 40% 50% 60% 70% 80% 90% 100%] = {}, compacted {}",
-                entryLogUsageBuckets, compactedBuckets);
+                "LedgerDir: {}. Compaction: entry log usage buckets[10% 20% 30% 40% 50% 60% 70% 80% 90% 100%] = {}, "
+                        + "compacted {}", ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), entryLogUsageBuckets,
+                compactedBuckets);
     }
 
     /**
