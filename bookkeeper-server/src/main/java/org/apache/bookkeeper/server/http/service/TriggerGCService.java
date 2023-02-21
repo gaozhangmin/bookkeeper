@@ -71,12 +71,24 @@ public class TriggerGCService implements HttpEndpointService {
                 Map<String, Object> configMap = JsonUtil.fromJson(requestBody, HashMap.class);
                 Boolean forceMajor = (Boolean) configMap.getOrDefault("forceMajor", null);
                 Boolean forceMinor = (Boolean) configMap.getOrDefault("forceMinor", null);
-                Double majorCompactionThreshold = (Double) configMap.getOrDefault("majorCompactionThreshold", null);
-                Double minorCompactionThreshold = (Double) configMap.getOrDefault("minorCompactionThreshold", null);
-                Long majorCompactionMaxTimeMillis = Long.valueOf((Integer) configMap.getOrDefault(
-                        "majorCompactionMaxTimeMillis", null));
-                Long minorCompactionMaxTimeMillis = Long.valueOf((Integer) configMap.getOrDefault(
-                        "minorCompactionMaxTimeMillis", null));
+                Double majorCompactionThreshold = (Double) configMap.getOrDefault("majorCompactionThreshold",
+                        conf.getMajorCompactionThreshold());
+                Double minorCompactionThreshold = (Double) configMap.getOrDefault("minorCompactionThreshold",
+                        conf.getMinorCompactionThreshold());
+                Long majorCompactionMaxTimeMillis =  configMap.get(
+                        "majorCompactionMaxTimeMillis") == null ? conf.getMajorCompactionMaxTimeMillis()
+                        : Long.valueOf((Integer) configMap.get("majorCompactionMaxTimeMillis"));
+                Long minorCompactionMaxTimeMillis =  configMap.get(
+                        "minorCompactionMaxTimeMillis") == null ? conf.getMinorCompactionMaxTimeMillis()
+                        : Long.valueOf((Integer) configMap.get("minorCompactionMaxTimeMillis"));
+
+                if (majorCompactionThreshold > 1.0f || majorCompactionThreshold < 0
+                        || minorCompactionThreshold > 1.0f || minorCompactionThreshold < 0
+                        || minorCompactionThreshold >= majorCompactionThreshold) {
+                    response.setCode(HttpServer.StatusCode.BAD_REQUEST);
+                    response.setBody("Bad request parameters");
+                    return response;
+                }
                 bookieServer.getBookie().getLedgerStorage().forceGC(forceMajor, forceMinor,
                         majorCompactionThreshold, minorCompactionThreshold,
                         majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
