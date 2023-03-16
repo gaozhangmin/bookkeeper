@@ -19,12 +19,12 @@
 package org.apache.bookkeeper.server.http;
 
 import static org.apache.bookkeeper.meta.MetadataDrivers.runFunctionWithLedgerManagerFactory;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.powermock.api.mockito.PowerMockito.spy;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -38,7 +38,10 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import lombok.Cleanup;
 import org.apache.bookkeeper.bookie.BookieResources;
+import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
 import org.apache.bookkeeper.bookie.LedgerStorage;
+import org.apache.bookkeeper.bookie.SortedLedgerStorage;
+import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorage;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.ClientUtil;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -65,10 +68,11 @@ import org.apache.bookkeeper.server.http.service.BookieStateService.BookieState;
 import org.apache.bookkeeper.server.http.service.ClusterInfoService;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
-import org.junit.Before;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
+import org.testng.annotations.Test;
 
 /**
  * Test the HTTP service.
@@ -79,6 +83,7 @@ public class TestHttpService extends BookKeeperClusterTestCase {
 
     private BKHttpServiceProvider bkHttpServiceProvider;
     private static final int numberOfBookies = 6;
+    private MetadataBookieDriver metadataDriver;
 
     public TestHttpService() {
         super(numberOfBookies);
@@ -92,14 +97,22 @@ public class TestHttpService extends BookKeeperClusterTestCase {
         }
     }
 
+    @DataProvider(name = "storageClass")
+    public static Object[][] storageClass() {
+        return new Object[][]{ { DbLedgerStorage.class.getName() },
+                { SortedLedgerStorage.class.getName() },
+                { InterleavedLedgerStorage.class.getName() }
+        };
+    }
+
     @Override
-    @Before
+    @BeforeMethod(firstTimeOnly = true)
     public void setUp() throws Exception {
         super.setUp();
         baseConf.setMetadataServiceUri(zkUtil.getMetadataServiceUri());
         baseClientConf.setStoreSystemtimeAsLedgerCreationTime(true);
 
-        MetadataBookieDriver metadataDriver = BookieResources.createMetadataDriver(
+        metadataDriver = BookieResources.createMetadataDriver(
                 baseConf, NullStatsLogger.INSTANCE);
 
         this.bkHttpServiceProvider = new BKHttpServiceProvider.Builder()
@@ -802,8 +815,15 @@ public class TestHttpService extends BookKeeperClusterTestCase {
         assertEquals(HttpServer.StatusCode.OK.getValue(), response2.getStatusCode());
     }
 
-    @Test
-    public void testGCDetailsService() throws Exception {
+    @Test(timeOut = 20000, dataProvider = "storageClass")
+    public void testGCDetailsService(String storageClass) throws Exception {
+        baseConf.setLedgerStorageClass(storageClass);
+        ServerTester server = startBookie(baseConf);
+        this.bkHttpServiceProvider = new BKHttpServiceProvider.Builder()
+                .setBookieServer(server.getServer())
+                .setServerConfiguration(baseConf)
+                .setLedgerManagerFactory(metadataDriver.getLedgerManagerFactory())
+                .build();
         baseConf.setMetadataServiceUri(zkUtil.getMetadataServiceUri());
         BookKeeper.DigestType digestType = BookKeeper.DigestType.CRC32;
         int numLedgers = 4;
@@ -845,6 +865,7 @@ public class TestHttpService extends BookKeeperClusterTestCase {
         HttpServiceRequest request3 = new HttpServiceRequest(null, HttpServer.Method.PUT, null);
         HttpServiceResponse response3 = gcDetailsService.handle(request3);
         assertEquals(HttpServer.StatusCode.NOT_FOUND.getValue(), response3.getStatusCode());
+        server.shutdown();
     }
 
     @Test
