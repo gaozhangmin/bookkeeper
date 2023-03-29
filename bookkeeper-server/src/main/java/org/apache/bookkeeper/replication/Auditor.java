@@ -1289,19 +1289,20 @@ public class Auditor implements AutoCloseable {
                 if (bookies.isEmpty()) {
                     // no missing fragments
                     callback.processResult(Code.OK, null, null);
-                    return;
+                } else {
+                    publishSuspectedLedgersAsync(bookies.stream().map(BookieId::toString).collect(Collectors.toList()),
+                            Sets.newHashSet(lh.getId())
+                    ).whenComplete((result, cause) -> {
+                        if (null != cause) {
+                            LOG.error("Auditor exception publishing suspected ledger {} with lost bookies {}",
+                                    lh.getId(), bookies, cause);
+                            callback.processResult(Code.ReplicationException, null, null);
+                        } else {
+                            callback.processResult(Code.OK, null, null);
+                        }
+                    });
                 }
-                publishSuspectedLedgersAsync(bookies.stream().map(BookieId::toString).collect(Collectors.toList()),
-                    Sets.newHashSet(lh.getId())
-                ).whenComplete((result, cause) -> {
-                    if (null != cause) {
-                        LOG.error("Auditor exception publishing suspected ledger {} with lost bookies {}",
-                            lh.getId(), bookies, cause);
-                        callback.processResult(Code.ReplicationException, null, null);
-                    } else {
-                        callback.processResult(Code.OK, null, null);
-                    }
-                });
+
             } else {
                 callback.processResult(rc, null, null);
             }
