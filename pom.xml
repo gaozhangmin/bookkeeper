@@ -211,7 +211,6 @@
     <rxjava.version>3.0.1</rxjava.version>
     <maven-failsafe-plugin.version>3.0.0-M6</maven-failsafe-plugin.version>
     <awaitility.version>4.0.3</awaitility.version>
-    <testng.version>7.3.0</testng.version>
   </properties>
 
   <!-- dependency definitions -->
@@ -807,12 +806,6 @@
         <groupId>com.carrotsearch</groupId>
         <artifactId>hppc</artifactId>
         <version>${hppc.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.testng</groupId>
-        <artifactId>testng</artifactId>
-        <version>${testng.version}</version>
-        <scope>test</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
