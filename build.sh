@@ -62,8 +62,9 @@ function make_output() {
     mkdir -p $output &>/dev/null
 
     # 填充output目录, output内的内容 即为 线上部署内容
-    (
-        cp -ap bookkeeper-dist/server/target/bookkeeper-server-*-bin.tar.gz $output
+    (   
+        tar -zxf bookkeeper-dist/server/target/bookkeeper-server-*-bin.tar.gz
+        cp -ap bookkeeper-server-* $output
         echo -e "make output ok."
     ) || { echo -e "make output error"; exit 2; } # 填充output目录失败后, 退出码为 非0
 }
