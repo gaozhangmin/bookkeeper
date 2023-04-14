@@ -60,7 +60,6 @@
     <module>bookkeeper-stats</module>
     <module>bookkeeper-proto</module>
     <module>bookkeeper-server</module>
-    <module>bookkeeper-benchmark</module>
     <module>bookkeeper-stats-providers</module>
     <module>bookkeeper-http</module>
     <module>stream</module>
