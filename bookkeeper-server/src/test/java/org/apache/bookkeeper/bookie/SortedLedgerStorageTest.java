@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.bookie;
 
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
+import static org.apache.bookkeeper.bookie.BookieResources.createColdLedgerDirsManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -38,6 +39,7 @@ import java.util.stream.IntStream;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.TestStatsProvider;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.junit.Before;
@@ -54,6 +56,7 @@ public class SortedLedgerStorageTest {
     TestStatsProvider statsProvider = new TestStatsProvider();
     ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
     LedgerDirsManager ledgerDirsManager;
+    LedgerDirsManager coldLedgerDirsManager;
     SortedLedgerStorage sortedLedgerStorage = new SortedLedgerStorage();
 
     final long numWrites = 2000;
@@ -105,7 +108,9 @@ public class SortedLedgerStorageTest {
         conf.setLedgerDirNames(new String[] { tmpDir.toString() });
         ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
-        sortedLedgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
+        coldLedgerDirsManager = createColdLedgerDirsManager(conf,
+                new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()), NullStatsLogger.INSTANCE);
+        sortedLedgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
                                        statsProvider.getStatsLogger(BOOKIE_SCOPE), UnpooledByteBufAllocator.DEFAULT);
         sortedLedgerStorage.setCheckpointSource(checkpointSource);
         sortedLedgerStorage.setCheckpointer(checkpointer);

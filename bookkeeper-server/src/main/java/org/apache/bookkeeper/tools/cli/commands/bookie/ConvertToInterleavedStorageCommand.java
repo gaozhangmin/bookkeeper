@@ -93,6 +93,8 @@ public class ConvertToInterleavedStorageCommand extends BookieCommand<ConvertToI
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(bkConf, bkConf.getLedgerDirs(), diskChecker);
         LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                 conf, diskChecker, NullStatsLogger.INSTANCE, ledgerDirsManager);
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, diskChecker, NullStatsLogger.INSTANCE);
 
         DbLedgerStorage dbStorage = new DbLedgerStorage();
         InterleavedLedgerStorage interleavedStorage = new InterleavedLedgerStorage();
@@ -118,11 +120,12 @@ public class ConvertToInterleavedStorageCommand extends BookieCommand<ConvertToI
             }
         };
 
-        dbStorage.initialize(conf, null, ledgerDirsManager, indexDirsManager,
+        dbStorage.initialize(conf, null, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
                              NullStatsLogger.INSTANCE, PooledByteBufAllocator.DEFAULT);
         dbStorage.setCheckpointSource(checkpointSource);
         dbStorage.setCheckpointer(checkpointer);
-        interleavedStorage.initialize(conf, null, ledgerDirsManager, indexDirsManager,
+        interleavedStorage.initialize(conf, null, ledgerDirsManager,
+                                      indexDirsManager, coldLedgerDirsManager,
                                       NullStatsLogger.INSTANCE, PooledByteBufAllocator.DEFAULT);
         interleavedStorage.setCheckpointSource(checkpointSource);
         interleavedStorage.setCheckpointer(checkpointer);

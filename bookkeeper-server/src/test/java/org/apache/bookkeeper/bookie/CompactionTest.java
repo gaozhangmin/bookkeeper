@@ -279,6 +279,9 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         }
         LedgerDirsManager dirManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
         CheckpointSource cp = new CheckpointSource() {
             @Override
             public Checkpoint newCheckpoint() {
@@ -306,6 +309,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                     lm,
                     dirManager,
                     dirManager,
+                    coldLedgerDirsManager,
                     NullStatsLogger.INSTANCE,
                     UnpooledByteBufAllocator.DEFAULT);
                 storage.setCheckpointSource(cp);
@@ -1318,6 +1322,9 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         File log0 = new File(curDir, "0.log");
         LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
         assertFalse("Log shouldnt exist", log0.exists());
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
         storage.initialize(
@@ -1325,6 +1332,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             manager,
             dirs,
             dirs,
+            coldLedgerDirsManager,
             NullStatsLogger.INSTANCE,
             UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
@@ -1351,7 +1359,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         storage.initialize(
             conf,
             manager,
-            dirs, dirs,
+            dirs, dirs, coldLedgerDirsManager,
             NullStatsLogger.INSTANCE,
             UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
@@ -1377,7 +1385,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             conf,
             manager,
             dirs,
-            dirs,
+            dirs, coldLedgerDirsManager,
             NullStatsLogger.INSTANCE,
             UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
@@ -1524,6 +1532,9 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
         final Set<Long> ledgers = Collections
                 .newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
         LedgerManager manager = getLedgerManager(ledgers);
@@ -1544,7 +1555,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             conf,
             manager,
             dirs,
-            dirs,
+            dirs, coldLedgerDirsManager,
             NullStatsLogger.INSTANCE,
             UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
@@ -1591,6 +1602,9 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                                               LedgerManager lm) throws Exception {
         LedgerDirsManager dirManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
         CheckpointSource cp = new CheckpointSource() {
             @Override
             public Checkpoint newCheckpoint() {
@@ -1617,6 +1631,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             lm,
             dirManager,
             dirManager,
+            coldLedgerDirsManager,
             stats.getStatsLogger("storage"),
             UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(cp);

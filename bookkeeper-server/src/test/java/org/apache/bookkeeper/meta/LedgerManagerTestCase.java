@@ -172,6 +172,7 @@ public abstract class LedgerManagerTestCase extends BookKeeperClusterTestCase {
             LedgerManager ledgerManager,
             LedgerDirsManager ledgerDirsManager,
             LedgerDirsManager indexDirsManager,
+            LedgerDirsManager coldLedgerDirsManager,
             StatsLogger statsLogger,
             ByteBufAllocator allocator) throws IOException {
         }

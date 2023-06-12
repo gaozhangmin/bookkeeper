@@ -39,12 +39,17 @@ public class EntryLogMetadata {
     protected long remainingSize;
     protected final ConcurrentLongLongHashMap ledgersMap;
     private static final short DEFAULT_SERIALIZATION_VERSION = 0;
+    protected long creationTime;
 
     protected EntryLogMetadata() {
         ledgersMap = ConcurrentLongLongHashMap.newBuilder()
                 .expectedItems(256)
                 .concurrencyLevel(1)
                 .build();
+    }
+
+    public void setCreationTime(long creationTime) {
+        this.creationTime = creationTime;
     }
 
     public EntryLogMetadata(long logId) {

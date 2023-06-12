@@ -37,6 +37,9 @@ public interface EntryLogScanner {
      */
     boolean accept(long ledgerId);
 
+//    default  void setMetaDataTimestamp(long timestamp) {
+//    }
+
     /**
      * Process an entry.
      *

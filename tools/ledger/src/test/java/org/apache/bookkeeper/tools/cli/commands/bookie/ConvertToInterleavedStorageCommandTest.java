@@ -124,11 +124,11 @@ public class ConvertToInterleavedStorageCommandTest extends BookieCommandTestBas
                     getMockedConstruction(InterleavedLedgerStorage.class).constructed().get(0);
             verify(dbStorage, times(1)).initialize(
                     any(ServerConfiguration.class), eq(null), any(LedgerDirsManager.class),
-                any(LedgerDirsManager.class), eq(NullStatsLogger.INSTANCE), eq(PooledByteBufAllocator.DEFAULT));
+                any(LedgerDirsManager.class), any(LedgerDirsManager.class), eq(NullStatsLogger.INSTANCE), eq(PooledByteBufAllocator.DEFAULT));
 
             verify(interleavedLedgerStorage, times(1))
                 .initialize(any(ServerConfiguration.class), eq(null), any(LedgerDirsManager.class),
-                    any(LedgerDirsManager.class), eq(NullStatsLogger.INSTANCE), eq(PooledByteBufAllocator.DEFAULT));
+                    any(LedgerDirsManager.class), any(LedgerDirsManager.class), eq(NullStatsLogger.INSTANCE), eq(PooledByteBufAllocator.DEFAULT));
             verify(dbStorage, times(1)).getActiveLedgersInRange(anyLong(), anyLong());
             verify(dbStorage, times(10)).readMasterKey(anyLong());
             verify(interleavedLedgerStorage, times(10)).setMasterKey(anyLong(), any());

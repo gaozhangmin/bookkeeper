@@ -22,6 +22,7 @@ package org.apache.bookkeeper.bookie;
 
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.STORAGE_SCRUB_PAGE_RETRIES;
+import static org.apache.bookkeeper.bookie.BookieResources.createColdLedgerDirsManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -136,7 +137,9 @@ public class InterleavedLedgerStorageTest {
     TestStatsProvider statsProvider = new TestStatsProvider();
     ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
     LedgerDirsManager ledgerDirsManager;
+    LedgerDirsManager coldLedgerDirsManager;
     TestableDefaultEntryLogger entryLogger;
+    TestableDefaultEntryLogger coldEntryLogger;
     InterleavedLedgerStorage interleavedStorage = new InterleavedLedgerStorage();
     final long numWrites = 2000;
     final long moreNumOfWrites = 3000;
@@ -154,12 +157,18 @@ public class InterleavedLedgerStorageTest {
         conf.setLedgerDirNames(new String[]{tmpDir.toString()});
         ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        coldLedgerDirsManager = createColdLedgerDirsManager(conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
 
         entryLogger = new TestableDefaultEntryLogger(
                 conf, ledgerDirsManager, null, NullStatsLogger.INSTANCE);
+        entryLogger = new TestableDefaultEntryLogger(
+                conf, ledgerDirsManager, null, NullStatsLogger.INSTANCE);
+        coldEntryLogger = new TestableDefaultEntryLogger(
+                conf, coldLedgerDirsManager, null, NullStatsLogger.INSTANCE);
         interleavedStorage.initializeWithEntryLogger(
-                conf, null, ledgerDirsManager, ledgerDirsManager,
-                entryLogger, statsProvider.getStatsLogger(BOOKIE_SCOPE));
+                conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
+                entryLogger, coldEntryLogger, statsProvider.getStatsLogger(BOOKIE_SCOPE));
         interleavedStorage.setCheckpointer(checkpointer);
         interleavedStorage.setCheckpointSource(checkpointSource);
 

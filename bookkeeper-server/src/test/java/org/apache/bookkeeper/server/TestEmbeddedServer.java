@@ -156,6 +156,9 @@ public class TestEmbeddedServer {
         LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                 conf.getServerConf(), diskChecker, rootStatsLogger.scope(LD_INDEX_SCOPE), ledgerDirsManager);
 
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf.getServerConf(), diskChecker, rootStatsLogger.scope(LD_LEDGER_SCOPE));
+
         UncleanShutdownDetectionImpl uncleanShutdownDetection = new UncleanShutdownDetectionImpl(ledgerDirsManager);
 
         ByteBufAllocatorWithOomHandler byteBufFromResources = PowerMockito.mock(ByteBufAllocatorWithOomHandler.class);
@@ -185,6 +188,7 @@ public class TestEmbeddedServer {
                 .diskChecker(diskChecker)
                 .ledgerDirsManager(ledgerDirsManager)
                 .indexDirsManager(indexDirsManager)
+                .coldLedgerDirsManager(coldLedgerDirsManager)
                 .allocator(byteBuf)
                 .uncleanShutdownDetection(uncleanShutdownDetection)
                 .build();
@@ -195,6 +199,7 @@ public class TestEmbeddedServer {
         assertSame(diskChecker, server.getDiskChecker());
         assertSame(ledgerDirsManager, server.getLedgerDirsManager());
         assertSame(indexDirsManager, server.getIndexDirsManager());
+        assertSame(coldLedgerDirsManager, server.getcoldLedgerDirsManager());
 
         LifecycleComponentStack stack = server.getLifecycleComponentStack();
         assertEquals(3, stack.getNumComponents());

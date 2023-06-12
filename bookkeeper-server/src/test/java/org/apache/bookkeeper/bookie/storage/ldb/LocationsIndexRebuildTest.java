@@ -31,12 +31,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
-import org.apache.bookkeeper.bookie.BookieImpl;
-import org.apache.bookkeeper.bookie.BookieShell;
-import org.apache.bookkeeper.bookie.CheckpointSource;
+
+import org.apache.bookkeeper.bookie.*;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
-import org.apache.bookkeeper.bookie.Checkpointer;
-import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -99,10 +96,13 @@ public class LocationsIndexRebuildTest {
         conf.setLedgerStorageClass(DbLedgerStorage.class.getName());
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
 
         DbLedgerStorage ledgerStorage = new DbLedgerStorage();
         ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
-                                 NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+                coldLedgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         ledgerStorage.setCheckpointer(checkpointer);
         ledgerStorage.setCheckpointSource(checkpointSource);
 
@@ -134,7 +134,7 @@ public class LocationsIndexRebuildTest {
         // Verify that db index has the same entries
         ledgerStorage = new DbLedgerStorage();
         ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
-                                 NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+                coldLedgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         ledgerStorage.setCheckpointSource(checkpointSource);
         ledgerStorage.setCheckpointer(checkpointer);
 
@@ -174,10 +174,13 @@ public class LocationsIndexRebuildTest {
         DiskChecker diskChecker = new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold());
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(), diskChecker);
         LedgerDirsManager indexDirsManager = new LedgerDirsManager(conf, conf.getIndexDirs(), diskChecker);
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, diskChecker, NullStatsLogger.INSTANCE);
+
 
         DbLedgerStorage ledgerStorage = new DbLedgerStorage();
         ledgerStorage.initialize(conf, null, ledgerDirsManager, indexDirsManager,
-                NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+                coldLedgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         ledgerStorage.setCheckpointer(checkpointer);
         ledgerStorage.setCheckpointSource(checkpointSource);
 
@@ -205,7 +208,7 @@ public class LocationsIndexRebuildTest {
         // Verify that db index has the same entries
         ledgerStorage = new DbLedgerStorage();
         ledgerStorage.initialize(conf, null, ledgerDirsManager, indexDirsManager,
-                NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+                coldLedgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         ledgerStorage.setCheckpointSource(checkpointSource);
         ledgerStorage.setCheckpointer(checkpointer);
 

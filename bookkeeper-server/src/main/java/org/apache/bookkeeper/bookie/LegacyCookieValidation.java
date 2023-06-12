@@ -242,6 +242,9 @@ public class LegacyCookieValidation implements CookieValidation {
                     if (null != c.getIndexDirPathsFromCookie()) {
                         dirs.addAll(Arrays.asList(c.getIndexDirPathsFromCookie()));
                     }
+                    if (null != c.getColdLegerDirPathsFromCookie()) {
+                        dirs.addAll(Arrays.asList(c.getColdLegerDirPathsFromCookie()));
+                    }
                     return Arrays.stream(dirs.toArray(new String[]{}));
                 }).map((s) -> new File(s)).collect(Collectors.toSet());
     }

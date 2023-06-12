@@ -28,14 +28,10 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
+
+import org.apache.bookkeeper.bookie.*;
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.bookie.BookieImpl;
-import org.apache.bookkeeper.bookie.BookieShell;
-import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
-import org.apache.bookkeeper.bookie.Checkpointer;
-import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
-import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -86,10 +82,13 @@ public class ConversionTest {
         conf.setLedgerDirNames(new String[] { tmpDir.toString() });
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()),
+                NullStatsLogger.INSTANCE);
 
         InterleavedLedgerStorage interleavedStorage = new InterleavedLedgerStorage();
         interleavedStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
-                                      NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+                coldLedgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         interleavedStorage.setCheckpointSource(checkpointSource);
         interleavedStorage.setCheckpointer(checkpointer);
 
@@ -120,15 +119,14 @@ public class ConversionTest {
 
         // Verify that db index has the same entries
         DbLedgerStorage dbStorage = new DbLedgerStorage();
-        dbStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
-                             NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
+        dbStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
+                NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         dbStorage.setCheckpointer(checkpointer);
         dbStorage.setCheckpointSource(checkpointSource);
 
         interleavedStorage = new InterleavedLedgerStorage();
-        interleavedStorage.initialize(conf, null, ledgerDirsManager,
-                ledgerDirsManager, NullStatsLogger.INSTANCE,
-                UnpooledByteBufAllocator.DEFAULT);
+        interleavedStorage.initialize(conf, null, ledgerDirsManager, coldLedgerDirsManager,
+                ledgerDirsManager, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
         interleavedStorage.setCheckpointSource(checkpointSource);
         interleavedStorage.setCheckpointer(checkpointer);
 

@@ -22,6 +22,8 @@
 package org.apache.bookkeeper.bookie;
 
 import io.netty.buffer.ByteBuf;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+
 import java.io.IOException;
 /**
  * Implements a ledger inside a bookie. In particular, it implements operations
@@ -40,6 +42,13 @@ public class LedgerDescriptorReadOnlyImpl extends LedgerDescriptorImpl {
 
     @Override
     long addEntry(ByteBuf entry) throws IOException {
+        assert false;
+        throw new IOException("Invalid action on read only descriptor");
+    }
+
+    @Override
+    long addEntry(ByteBuf entry, boolean ackBeforeSync,
+                  BookkeeperInternalCallbacks.WriteCallback cb, Object ctx) throws IOException {
         assert false;
         throw new IOException("Invalid action on read only descriptor");
     }

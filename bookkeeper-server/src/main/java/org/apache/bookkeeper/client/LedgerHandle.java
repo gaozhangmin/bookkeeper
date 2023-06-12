@@ -1831,6 +1831,7 @@ public class LedgerHandle implements WriteHandle {
             if (!writeFlags.contains(WriteFlag.DEFERRED_SYNC)) {
                 this.lastAddConfirmed = pendingAddsSequenceHead;
             }
+            LOG.info("Send add success callback for ledger: {} entry: {}", ledgerId, pendingAddOp.entryId);
 
             pendingAddOp.submitCallback(BKException.Code.OK);
         }

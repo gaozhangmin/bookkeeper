@@ -150,6 +150,8 @@ message GetBookieInfoRequest {
     enum Flags {
         TOTAL_DISK_CAPACITY = 0x01;
         FREE_DISK_SPACE = 0x02;
+        TOTAL_COLD_DISK_CAPACITY = 0x03;
+        FREE_COLD_DISK_SPACE = 0x04;
     }
     // bitwise OR of Flags
     optional int64 requested = 1;
@@ -219,6 +221,8 @@ message GetBookieInfoResponse {
     required StatusCode status = 1;
     optional int64 totalDiskCapacity = 2;
     optional int64 freeDiskSpace = 3;
+    optional int64 totalColdDiskCapacity = 4;
+    optional int64 freeColdDiskSpace = 5;
 }
 
 message GetListOfEntriesOfLedgerResponse {

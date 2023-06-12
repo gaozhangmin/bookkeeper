@@ -311,6 +311,16 @@ public class Main {
                 }
             }
         }
+        File[] coldLegderDirs = conf.getColdLedgerDirs();
+        if (indexDirs != null) {
+            for (File i : coldLegderDirs) {
+                File cur = BookieImpl.getCurrentDirectory(i);
+                if (!dirs.stream().anyMatch(f -> f.equals(cur))) {
+                    BookieImpl.checkDirectoryStructure(cur);
+                    dirs.add(cur);
+                }
+            }
+        }
         return dirs;
     }
 

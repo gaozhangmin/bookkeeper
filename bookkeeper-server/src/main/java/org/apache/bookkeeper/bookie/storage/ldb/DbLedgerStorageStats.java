@@ -48,6 +48,7 @@ class DbLedgerStorageStats {
     private static final String READ_ENTRY = "read-entry";
     private static final String READ_ENTRY_LOCATIONS_INDEX_TIME = "read-locations-index-time";
     private static final String READ_ENTRYLOG_TIME = "read-entrylog-time";
+    private static final String READ_COLD_ENTRYLOG_TIME = "read-cold-entrylog-time";
     private static final String WRITE_CACHE_HITS = "write-cache-hits";
     private static final String WRITE_CACHE_MISSES = "write-cache-misses";
     private static final String READ_CACHE_HITS = "read-cache-hits";
@@ -60,6 +61,8 @@ class DbLedgerStorageStats {
     private static final String FLUSH_LOCATIONS_INDEX = "flush-locations-index";
     private static final String FLUSH_LEDGER_INDEX = "flush-ledger-index";
     private static final String FLUSH_SIZE = "flush-size";
+    private static final String DISK_CACHE_HITS = "disk-cache-hits";
+    private static final String DISK_CACHE_MISSES = "disk-cache-misses";
 
     @Deprecated
     private static final String THROTTLED_WRITE_REQUESTS = "throttled-write-requests";
@@ -96,6 +99,12 @@ class DbLedgerStorageStats {
     )
     private final Counter readFromEntryLogTime;
     @StatsDoc(
+            name = READ_COLD_ENTRYLOG_TIME,
+            help = "time spent reading entries from the cold entry log files of the db ledger storage engine",
+            parent = READ_ENTRY
+    )
+    private final Counter readFromColdEntryLogTime;
+    @StatsDoc(
             name = WRITE_CACHE_HITS,
             help = "number of write cache hits (on reads)",
             parent = READ_ENTRY
@@ -119,6 +128,18 @@ class DbLedgerStorageStats {
         parent = READ_ENTRY
     )
     private final Counter readCacheMissCounter;
+    @StatsDoc(
+            name = DISK_CACHE_HITS,
+            help = "number of disk cache hits (on reads)",
+            parent = READ_ENTRY
+    )
+    private final Counter diskCacheHitCounter;
+    @StatsDoc(
+            name = DISK_CACHE_MISSES,
+            help = "number of disk cache misses (on reads)",
+            parent = READ_ENTRY
+    )
+    private final Counter diskCacheMissCounter;
     @StatsDoc(
         name = READAHEAD_BATCH_COUNT,
         help = "the distribution of num of entries to read in one readahead batch"
@@ -205,6 +226,7 @@ class DbLedgerStorageStats {
         readEntryStats = stats.getThreadScopedOpStatsLogger(READ_ENTRY);
         readFromLocationIndexTime = stats.getThreadScopedCounter(READ_ENTRY_LOCATIONS_INDEX_TIME);
         readFromEntryLogTime = stats.getThreadScopedCounter(READ_ENTRYLOG_TIME);
+        readFromColdEntryLogTime = stats.getThreadScopedCounter(READ_COLD_ENTRYLOG_TIME);
         readCacheHitCounter = stats.getCounter(READ_CACHE_HITS);
         readCacheMissCounter = stats.getCounter(READ_CACHE_MISSES);
         writeCacheHitCounter = stats.getCounter(WRITE_CACHE_HITS);
@@ -217,6 +239,8 @@ class DbLedgerStorageStats {
         flushLocationIndexStats = stats.getOpStatsLogger(FLUSH_LOCATIONS_INDEX);
         flushLedgerIndexStats = stats.getOpStatsLogger(FLUSH_LEDGER_INDEX);
         flushSizeStats = stats.getOpStatsLogger(FLUSH_SIZE);
+        diskCacheHitCounter = stats.getCounter(DISK_CACHE_MISSES);
+        diskCacheMissCounter = stats.getCounter(DISK_CACHE_MISSES);
 
         throttledWriteRequests = stats.getThreadScopedCounter(THROTTLED_WRITE_REQUESTS);
         throttledWriteStats = stats.getOpStatsLogger(THROTTLED_WRITE);

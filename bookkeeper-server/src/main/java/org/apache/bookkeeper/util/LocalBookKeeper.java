@@ -515,8 +515,12 @@ public class LocalBookKeeper implements AutoCloseable {
                     conf, diskChecker, NullStatsLogger.INSTANCE);
             LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                     conf, diskChecker, NullStatsLogger.INSTANCE, ledgerDirsManager);
+            LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                    conf, diskChecker, NullStatsLogger.INSTANCE);
+
+
             LedgerStorage storage = BookieResources.createLedgerStorage(
-                    conf, ledgerManager, ledgerDirsManager, indexDirsManager,
+                    conf, ledgerManager, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
                     NullStatsLogger.INSTANCE, allocator);
             UncleanShutdownDetection shutdownManager = new UncleanShutdownDetectionImpl(ledgerDirsManager);
 
@@ -527,7 +531,8 @@ public class LocalBookKeeper implements AutoCloseable {
             componentInfoPublisher.startupFinished();
             bookie = new BookieImpl(conf, registrationManager, storage, diskChecker,
                                     ledgerDirsManager, indexDirsManager,
-                                    NullStatsLogger.INSTANCE, allocator, bookieServiceInfoProvider);
+                                    coldLedgerDirsManager, NullStatsLogger.INSTANCE,
+                                    allocator, bookieServiceInfoProvider);
             server = new BookieServer(conf, bookie, NullStatsLogger.INSTANCE, allocator,
                                       shutdownManager);
         }

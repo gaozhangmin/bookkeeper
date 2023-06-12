@@ -36,6 +36,7 @@ import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 /**
@@ -54,6 +55,7 @@ public interface LedgerStorage {
                     LedgerManager ledgerManager,
                     LedgerDirsManager ledgerDirsManager,
                     LedgerDirsManager indexDirsManager,
+                    LedgerDirsManager coldLedgerDirsManager,
                     StatsLogger statsLogger,
                     ByteBufAllocator allocator)
             throws IOException;
@@ -137,7 +139,17 @@ public interface LedgerStorage {
      *
      * @return the entry id of the entry added
      */
-    long addEntry(ByteBuf entry) throws IOException, BookieException;
+    default long addEntry(ByteBuf entry) throws IOException, BookieException {
+        throw new UnsupportedOperationException("AddEntry with cache only supported for " +
+                "DbLedgerStorage, SortedLedgerStorage, InterLeavedLedgerStorage");
+    }
+
+    default long addEntry(ByteBuf entry, boolean ackBeforeSync,
+                          BookkeeperInternalCallbacks.WriteCallback cb,
+                          Object ctx) throws InterruptedException {
+        throw new UnsupportedOperationException("AddEntry without cache only supported for " +
+                "DirectDbLedgerStorage");
+    }
 
     /**
      * Read an entry from storage.

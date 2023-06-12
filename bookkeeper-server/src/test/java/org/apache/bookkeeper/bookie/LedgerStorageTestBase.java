@@ -23,12 +23,15 @@ import java.io.File;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TestName;
+
+import static org.apache.bookkeeper.bookie.BookieResources.createColdLedgerDirsManager;
 
 /**
  * Test the checkpoint logic in bookies.
@@ -42,6 +45,7 @@ public abstract class LedgerStorageTestBase {
     protected ServerConfiguration conf;
     protected File journalDir, ledgerDir;
     protected LedgerDirsManager ledgerDirsManager;
+    protected LedgerDirsManager coldLedgerDirsManager;
 
     private File createTempDir(String suffix) throws Exception {
         File dir = File.createTempFile(testName.getMethodName(), suffix);
@@ -76,6 +80,8 @@ public abstract class LedgerStorageTestBase {
             conf,
             conf.getLedgerDirs(),
             checker);
+        coldLedgerDirsManager = createColdLedgerDirsManager(conf,
+                checker, NullStatsLogger.INSTANCE);
     }
 
     @After

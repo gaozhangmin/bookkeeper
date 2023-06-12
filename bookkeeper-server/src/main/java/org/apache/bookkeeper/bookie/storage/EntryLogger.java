@@ -96,6 +96,16 @@ public interface EntryLogger extends AutoCloseable {
      */
     Collection<Long> getFlushedLogIds();
 
+    void flushColdEntrylogger(long logId);
+
+    void archivedEntryLog(long logId);
+
+    void archivedLogIds();
+
+    long getMaxArchivedLogId();
+
+    boolean isArchivedEntryLog(long entryLogId);
+
     /**
      * Scan the given entrylog, returning all entries contained therein.
      */

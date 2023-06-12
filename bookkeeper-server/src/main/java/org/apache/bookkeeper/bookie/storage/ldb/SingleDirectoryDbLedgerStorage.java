@@ -22,6 +22,7 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.logIdForOffset;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -48,23 +49,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.StampedLock;
-import org.apache.bookkeeper.bookie.Bookie;
+
+import org.apache.bookkeeper.bookie.*;
 import org.apache.bookkeeper.bookie.Bookie.NoEntryException;
-import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.BookieException.OperationRejectedException;
-import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
-import org.apache.bookkeeper.bookie.Checkpointer;
-import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
-import org.apache.bookkeeper.bookie.EntryLocation;
-import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
-import org.apache.bookkeeper.bookie.GarbageCollectorThread;
-import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
-import org.apache.bookkeeper.bookie.LedgerCache;
-import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
-import org.apache.bookkeeper.bookie.LedgerEntryPage;
-import org.apache.bookkeeper.bookie.StateManager;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorageDataFormats.LedgerData;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorage.Batch;
@@ -91,6 +81,7 @@ import org.slf4j.LoggerFactory;
  */
 public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage {
     private final EntryLogger entryLogger;
+    private EntryLogger coldEntryLogger;
 
     private final LedgerMetadataIndex ledgerIndex;
     private final EntryLocationIndex entryLocationIndex;
@@ -98,6 +89,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     private final ConcurrentLongHashMap<TransientLedgerInfo> transientLedgerInfoCache;
 
     private final GarbageCollectorThread gcThread;
+    private ColdStorageArchiveThread coldStorageBackupThread = null;
 
     // Write cache where all new entries are inserted into
     protected volatile WriteCache writeCache;
@@ -147,7 +139,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     public SingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
                                           LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
-                                          EntryLogger entryLogger, StatsLogger statsLogger, ByteBufAllocator allocator,
+                                          LedgerDirsManager coldLedgerDirsManager,
+                                          EntryLogger entryLogger, EntryLogger coldEntryLogger,
+                                          StatsLogger statsLogger, ByteBufAllocator allocator,
                                           long writeCacheSize, long readCacheSize, int readAheadCacheBatchSize,
                                           long readAheadCacheBatchBytesSize)
             throws IOException {
@@ -171,6 +165,12 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         StatsLogger ledgerIndexDirStatsLogger = statsLogger
                 .scopeLabel("ledgerDir", ledgerBaseDir)
                 .scopeLabel("indexDir", indexBaseDir);
+
+        if (coldLedgerDirsManager != null) {
+            String coldLedgerBaseDir = coldLedgerDirsManager.getAllLedgerDirs().get(0).getPath();
+            ledgerIndexDirStatsLogger
+                    = ledgerIndexDirStatsLogger.scopeLabel("coldLedgerDir", coldLedgerBaseDir);
+        }
 
         this.writeCacheMaxSize = writeCacheSize;
         this.writeCache = new WriteCache(allocator, writeCacheMaxSize / 2);
@@ -204,8 +204,21 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 TransientLedgerInfo.LEDGER_INFO_CACHING_TIME_MINUTES, TimeUnit.MINUTES);
 
         this.entryLogger = entryLogger;
-        gcThread = new GarbageCollectorThread(conf,
-                ledgerManager, ledgerDirsManager, this, entryLogger, ledgerIndexDirStatsLogger);
+        this.coldEntryLogger = coldEntryLogger;
+        if (this.coldEntryLogger != null && coldLedgerDirsManager != null) {
+            coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager,
+                    ledgerDirsManager, coldLedgerDirsManager,
+                    this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger);
+            gcThread = new GarbageCollectorThread(conf,
+                    ledgerManager, coldLedgerDirsManager, this, coldEntryLogger, ledgerIndexDirStatsLogger);
+            coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+
+        } else {
+            gcThread = new GarbageCollectorThread(conf,
+                    ledgerManager, ledgerDirsManager, this, entryLogger, ledgerIndexDirStatsLogger);
+            ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        }
+
 
         dbLedgerStorageStats = new DbLedgerStorageStats(
             ledgerIndexDirStatsLogger,
@@ -223,8 +236,6 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             // when the write cache is full which may not happen or not for a long time
             flushExecutorTime.addLatency(0, TimeUnit.NANOSECONDS);
         });
-
-        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         if (!ledgerBaseDir.equals(indexBaseDir)) {
             indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         }
@@ -232,7 +243,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     @Override
     public void initialize(ServerConfiguration conf, LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager,
-            LedgerDirsManager indexDirsManager, StatsLogger statsLogger,
+            LedgerDirsManager indexDirsManager, LedgerDirsManager coldLedgerDirsManager, StatsLogger statsLogger,
             ByteBufAllocator allocator) throws IOException {
         /// Initialized in constructor
     }
@@ -261,8 +272,18 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         });
     }
 
+    @VisibleForTesting
+    public ColdStorageArchiveThread getColdStorageBackupThread() {
+        return coldStorageBackupThread;
+    }
+
     @Override
     public void start() {
+        log.info("Starting DbLedgerStorage");
+        if (coldStorageBackupThread != null) {
+            log.info("Starting coldStorageBackupThread");
+            coldStorageBackupThread.start();
+        }
         gcThread.start();
     }
 
@@ -340,7 +361,10 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             gcThread.shutdown();
             entryLogger.close();
-
+            if (coldStorageBackupThread != null) {
+                coldStorageBackupThread.shutdown();
+                coldEntryLogger.close();
+            }
             cleanupExecutor.shutdown();
             cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS);
 
@@ -636,11 +660,24 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         }
 
         long readEntryStartNano = MathUtils.nowInNano();
-        try {
-            entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
-        } finally {
-            dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
-                    MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+        long entryLogId = logIdForOffset(entryLocation);
+        if (coldEntryLogger != null && entryLogger.isArchivedEntryLog(entryLogId)) {
+            try {
+                entry = coldEntryLogger.readEntry(ledgerId, entryId, entryLocation);
+            } finally {
+                dbLedgerStorageStats.getDiskCacheMissCounter().inc();
+                dbLedgerStorageStats.getReadFromColdEntryLogTime().addLatency(
+                        MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+            }
+
+        } else {
+            try {
+                entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
+            } finally {
+                dbLedgerStorageStats.getDiskCacheHitCounter().inc();
+                dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+                        MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+            }
         }
 
         readCache.put(ledgerId, entryId, entry);
@@ -766,9 +803,26 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 MathUtils.elapsedNanos(locationIndexStartNano), TimeUnit.NANOSECONDS);
 
         long readEntryStartNano = MathUtils.nowInNano();
-        ByteBuf content = entryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
-        dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
-                MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+        ByteBuf content;
+        long entryLogId = logIdForOffset(entryLocation);
+        if (coldEntryLogger != null && entryLogger.isArchivedEntryLog(entryLogId)) {
+            try {
+                content = coldEntryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
+            } finally {
+                dbLedgerStorageStats.getDiskCacheMissCounter().inc();
+                dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+                        MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+            }
+
+        } else {
+            try {
+                content = entryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
+            } finally {
+                dbLedgerStorageStats.getDiskCacheHitCounter().inc();
+                dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+                        MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
+            }
+        }
         return content;
     }
 
@@ -979,6 +1033,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     @VisibleForTesting
     EntryLogger getEntryLogger() {
         return entryLogger;
+    }
+
+    @VisibleForTesting
+    EntryLogger getColdEntryLogger() {
+        return coldEntryLogger;
     }
 
     @Override

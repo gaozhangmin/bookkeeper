@@ -64,6 +64,7 @@ public class MockLedgerStorage implements CompactableLedgerStorage {
                            LedgerManager ledgerManager,
                            LedgerDirsManager ledgerDirsManager,
                            LedgerDirsManager indexDirsManager,
+                           LedgerDirsManager coldLedgerDirsManager,
                            StatsLogger statsLogger,
                            ByteBufAllocator allocator)
             throws IOException {}

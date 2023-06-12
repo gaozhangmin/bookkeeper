@@ -35,10 +35,7 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -75,6 +72,8 @@ public class DirectEntryLogger implements EntryLogger {
     private final int readBufferSize;
     private final int maxSaneEntrySize;
     private final Set<Integer> unflushedLogs;
+    private final SortedMap<Integer, Boolean> archivedEntryLogsStatusMap;
+    private int maxArchivedLogId;
 
     private WriterWithMetadata curWriter;
 
@@ -106,7 +105,8 @@ public class DirectEntryLogger implements EntryLogger {
         this.pendingFlushes = new ArrayList<>();
         this.nativeIO = nativeIO;
         this.unflushedLogs = ConcurrentHashMap.newKeySet();
-
+        this.archivedEntryLogsStatusMap = new TreeMap<>();
+        this.maxArchivedLogId = getMaxArchivedLogIdByScan() - 1;
         this.maxFileSize = maxFileSize;
         this.maxSaneEntrySize = maxSaneEntrySize;
         this.readBufferSize = Buffer.nextAlignment(readBufferSize);
@@ -369,6 +369,44 @@ public class DirectEntryLogger implements EntryLogger {
             .filter(logId -> !unflushedLogs.contains(logId))
             .map(i -> Long.valueOf(i))
             .collect(Collectors.toList());
+    }
+
+    private int getMaxArchivedLogIdByScan() {
+        return EntryLogIdsImpl.logIdsInDirectory(ledgerDir).stream()
+                .filter(logId -> !unflushedLogs.contains(logId))
+                .mapToInt(i -> i)
+                .min()
+                .orElse(-1);
+    }
+
+    @Override
+    public void flushColdEntrylogger(long logId) {
+        unflushedLogs.remove((int) logId);
+    }
+
+    @Override
+    public synchronized void archivedEntryLog(long entrylogId) {
+        archivedEntryLogsStatusMap.put((int) entrylogId, true);
+    }
+    @Override
+    public synchronized void archivedLogIds() {
+        if (!archivedEntryLogsStatusMap.isEmpty()) {
+            if (maxArchivedLogId < archivedEntryLogsStatusMap.lastKey()) {
+                maxArchivedLogId = archivedEntryLogsStatusMap.lastKey();
+            }
+            archivedEntryLogsStatusMap.clear();
+        }
+    }
+
+    @Override
+    public synchronized long getMaxArchivedLogId() {
+        return maxArchivedLogId;
+    }
+
+    @Override
+    public synchronized boolean isArchivedEntryLog(long entrylogId) {
+        return archivedEntryLogsStatusMap.getOrDefault((int) entrylogId, false)
+                || entrylogId <= maxArchivedLogId;
     }
 
     @Override

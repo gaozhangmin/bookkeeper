@@ -84,7 +84,7 @@ public class DefaultEntryLogger implements EntryLogger {
     @VisibleForTesting
     static final int UNINITIALIZED_LOG_ID = -0xDEAD;
 
-    static class BufferedLogChannel extends BufferedChannel {
+    public static class BufferedLogChannel extends BufferedChannel {
         private final long logId;
         private final EntryLogMetadata entryLogMetadata;
         private final File logFile;
@@ -199,7 +199,7 @@ public class DefaultEntryLogger implements EntryLogger {
             super.flush();
 
             // Update the headers with the map offset and count of ledgers
-            ByteBuffer mapInfo = ByteBuffer.allocate(8 + 4);
+            ByteBuffer mapInfo = ByteBuffer.allocate(8 + 4 + 8);
             mapInfo.putLong(ledgerMapOffset);
             mapInfo.putInt(numberOfLedgers);
             mapInfo.flip();
@@ -337,17 +337,24 @@ public class DefaultEntryLogger implements EntryLogger {
 
         // Find the largest logId
         long logId = INVALID_LID;
+        long archivedMaxLogId = INVALID_LID;
         for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
             if (!dir.exists()) {
                 throw new FileNotFoundException(
                         "Entry log directory '" + dir + "' does not exist");
             }
             long lastLogId = getLastLogId(dir);
+            long lowestLogId = readLogIdByScan(dir, true);
+            if (lowestLogId > archivedMaxLogId) {
+                archivedMaxLogId = lowestLogId - 1;
+            }
             if (lastLogId > logId) {
                 logId = lastLogId;
             }
         }
-        this.recentlyCreatedEntryLogsStatus = new RecentEntryLogsStatus(logId + 1);
+        LOG.info("LedgerDir={}, archivedMaxLogId={}",
+                ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), archivedMaxLogId);
+        this.recentlyCreatedEntryLogsStatus = new RecentEntryLogsStatus(logId + 1, archivedMaxLogId);
         this.entryLoggerAllocator = new EntryLoggerAllocator(conf, ledgerDirsManager, recentlyCreatedEntryLogsStatus,
                 logId, allocator);
         if (entryLogPerLedgerEnabled) {
@@ -359,7 +366,7 @@ public class DefaultEntryLogger implements EntryLogger {
         }
     }
 
-    EntryLogManager getEntryLogManager() {
+    public EntryLogManager getEntryLogManager() {
         return entryLogManager;
     }
 
@@ -454,6 +461,26 @@ public class DefaultEntryLogger implements EntryLogger {
     }
 
     @Override
+    public void archivedEntryLog(long entryLogId) {
+        recentlyCreatedEntryLogsStatus.archivedEntryLog(entryLogId);
+    }
+
+    @Override
+    public void archivedLogIds() {
+        recentlyCreatedEntryLogsStatus.archivedLogIds();
+    }
+
+    @Override
+    public long getMaxArchivedLogId() {
+        return recentlyCreatedEntryLogsStatus.getMaxArchivedLogId();
+    }
+
+    @Override
+    public boolean isArchivedEntryLog(long entryLogId) {
+        return recentlyCreatedEntryLogsStatus.isArchivedEntryLog(entryLogId);
+    }
+
+    @Override
     public Set<Long> getFlushedLogIds() {
         Set<Long> logIds = new HashSet<>();
         synchronized (recentlyCreatedEntryLogsStatus) {
@@ -472,6 +499,12 @@ public class DefaultEntryLogger implements EntryLogger {
             }
         }
         return logIds;
+    }
+
+    @Override
+    public void flushColdEntrylogger(long logId) {
+        recentlyCreatedEntryLogsStatus.createdEntryLog(logId);
+        recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(logId);
     }
 
     long getPreviousAllocatedEntryLogId() {
@@ -538,7 +571,12 @@ public class DefaultEntryLogger implements EntryLogger {
         if (id > 0) {
             return id;
         }
-        // read failed, scan the ledger directories to find biggest log id
+        // read failed, scan the ledger directories to find the biggest log id
+        return readLogIdByScan(dir, false);
+    }
+
+    private long readLogIdByScan(File dir, boolean reverse) {
+        // read failed, scan the ledger directories to find the biggest log id
         File[] logFiles = dir.listFiles(file -> file.getName().endsWith(".log"));
         List<Long> logs = new ArrayList<Long>();
         if (logFiles != null) {
@@ -553,7 +591,11 @@ public class DefaultEntryLogger implements EntryLogger {
         }
         // order the collections
         Collections.sort(logs);
-        return logs.get(logs.size() - 1);
+        if (reverse) {
+            return logs.get(0);
+        }  else {
+            return logs.get(logs.size() - 1);
+        }
     }
 
     /**
@@ -675,7 +717,7 @@ public class DefaultEntryLogger implements EntryLogger {
         }
     }
 
-    static long logIdForOffset(long offset) {
+    public static long logIdForOffset(long offset) {
         return offset >> 32L;
     }
 
@@ -689,7 +731,7 @@ public class DefaultEntryLogger implements EntryLogger {
      * Exception type for representing lookup errors.  Useful for disambiguating different error
      * conditions for reporting purposes.
      */
-    static class EntryLookupException extends Exception {
+    public static class EntryLookupException extends Exception {
         EntryLookupException(String message) {
             super(message);
         }
@@ -697,7 +739,7 @@ public class DefaultEntryLogger implements EntryLogger {
         /**
          * Represents case where log file is missing.
          */
-        static class MissingLogFileException extends EntryLookupException {
+        public static class MissingLogFileException extends EntryLookupException {
             MissingLogFileException(long ledgerId, long entryId, long entryLogId, long pos) {
                 super(String.format("Missing entryLog %d for ledgerId %d, entry %d at offset %d",
                         entryLogId,
@@ -898,6 +940,7 @@ public class DefaultEntryLogger implements EntryLogger {
         // We set the position of the write buffer of this buffered channel to Long.MAX_VALUE
         // so that there are no overlaps with the write buffer while reading
         fc = new BufferedReadChannel(newFc, conf.getReadBufferBytes());
+//        fc.setTimestamp(file.lastModified());
         putInReadChannels(entryLogId, fc);
         return fc;
     }
@@ -980,6 +1023,7 @@ public class DefaultEntryLogger implements EntryLogger {
 
         // Start with a reasonably sized buffer size
         ByteBuf data = allocator.directBuffer(1024 * 1024);
+//        scanner.setMetaDataTimestamp(bc.getTimestamp());
 
         try {
 
@@ -1030,15 +1074,18 @@ public class DefaultEntryLogger implements EntryLogger {
         }
     }
 
-    public EntryLogMetadata getEntryLogMetadata(long entryLogId, AbstractLogCompactor.Throttler throttler)
-        throws IOException {
+    public EntryLogMetadata getEntryLogMetadata(long entryLogId,
+                                                AbstractLogCompactor.Throttler throttler)
+            throws IOException {
         // First try to extract the EntryLogMetadata from the index, if there's no index then fallback to scanning the
         // entry log
         try {
             return extractEntryLogMetadataFromIndex(entryLogId);
+        } catch (FileNotFoundException fne) {
+            LOG.warn("Cannot find entry log file {}.log : {}", Long.toHexString(entryLogId), fne.getMessage());
+            throw fne;
         } catch (Exception e) {
             LOG.info("Failed to get ledgers map index from: {}.log : {}", entryLogId, e.getMessage());
-
             // Fall-back to scanning
             return extractEntryLogMetadataByScanning(entryLogId, throttler);
         }
@@ -1065,6 +1112,7 @@ public class DefaultEntryLogger implements EntryLogger {
         // There can be multiple entries containing the various components of the serialized ledgers map
         long offset = header.ledgersMapOffset;
         EntryLogMetadata meta = new EntryLogMetadata(entryLogId);
+//        meta.setCreationTime(bc.getTimestamp());
 
         final int maxMapSize = LEDGERS_MAP_HEADER_SIZE + LEDGERS_MAP_ENTRY_SIZE * LEDGERS_MAP_MAX_BATCH_SIZE;
         ByteBuf ledgersMap = allocator.directBuffer(maxMapSize);
@@ -1149,6 +1197,11 @@ public class DefaultEntryLogger implements EntryLogger {
             public boolean accept(long ledgerId) {
                 return ledgerId >= 0;
             }
+
+//            @Override
+//            public void setMetaDataTimestamp(long timestamp) {
+//                meta.setCreationTime(timestamp);
+//            }
         });
 
         if (LOG.isDebugEnabled()) {
@@ -1232,15 +1285,43 @@ public class DefaultEntryLogger implements EntryLogger {
      */
     static class RecentEntryLogsStatus {
         private final SortedMap<Long, Boolean> entryLogsStatusMap;
+        private final SortedMap<Long, Boolean> archivedEntryLogsStatusMap;
         private long leastUnflushedLogId;
 
-        RecentEntryLogsStatus(long leastUnflushedLogId) {
+        private long maxArchivedLogId;
+
+        RecentEntryLogsStatus(long leastUnflushedLogId, long maxArchivedLogId) {
             entryLogsStatusMap = new TreeMap<>();
+            archivedEntryLogsStatusMap = new TreeMap<>();
             this.leastUnflushedLogId = leastUnflushedLogId;
+            this.maxArchivedLogId = maxArchivedLogId;
         }
 
         synchronized void createdEntryLog(Long entryLogId) {
             entryLogsStatusMap.put(entryLogId, false);
+        }
+
+        synchronized void archivedEntryLog(Long entryLogId) {
+            archivedEntryLogsStatusMap.put(entryLogId, true);
+        }
+
+        synchronized void archivedLogIds() {
+            if (!archivedEntryLogsStatusMap.isEmpty()) {
+                if (maxArchivedLogId < archivedEntryLogsStatusMap.lastKey()) {
+                    maxArchivedLogId = archivedEntryLogsStatusMap.lastKey();
+                }
+                archivedEntryLogsStatusMap.clear();
+            }
+        }
+
+        synchronized long getMaxArchivedLogId() {
+            return maxArchivedLogId;
+        }
+
+        synchronized boolean isArchivedEntryLog(long entrylogId) {
+            return archivedEntryLogsStatusMap.getOrDefault(entrylogId, false)
+                    || entrylogId <= maxArchivedLogId;
+
         }
 
         synchronized void flushRotatedEntryLog(Long entryLogId) {

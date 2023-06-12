@@ -55,22 +55,23 @@ public class DbLedgerStorageWriteCacheTest {
         @Override
         protected SingleDirectoryDbLedgerStorage newSingleDirectoryDbLedgerStorage(ServerConfiguration conf,
             LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
-            EntryLogger entryLogger, StatsLogger statsLogger,
+            LedgerDirsManager coldLegerDirsManager, EntryLogger entryLogger, EntryLogger coldEntryLogger, StatsLogger statsLogger,
             long writeCacheSize, long readCacheSize, int readAheadCacheBatchSize, long readAheadCacheBatchBytesSize)
                 throws IOException {
             return new MockedSingleDirectoryDbLedgerStorage(conf, ledgerManager, ledgerDirsManager, indexDirsManager,
-                entryLogger, statsLogger, allocator, writeCacheSize,
+                    coldLegerDirsManager,
+                entryLogger, coldEntryLogger, statsLogger, allocator, writeCacheSize,
                 readCacheSize, readAheadCacheBatchSize, readAheadCacheBatchBytesSize);
         }
 
         private static class MockedSingleDirectoryDbLedgerStorage extends SingleDirectoryDbLedgerStorage {
             public MockedSingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
-                    LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, EntryLogger entryLogger,
-                    StatsLogger statsLogger,
-                    ByteBufAllocator allocator, long writeCacheSize,
+                    LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
+                    LedgerDirsManager coldLegerDirsManager, EntryLogger entryLogger, EntryLogger coldEntryLogger,
+                    StatsLogger statsLogger, ByteBufAllocator allocator, long writeCacheSize,
                     long readCacheSize, int readAheadCacheBatchSize, long readAheadCacheBatchBytesSize)
                     throws IOException {
-                super(conf, ledgerManager, ledgerDirsManager, indexDirsManager, entryLogger,
+                super(conf, ledgerManager, ledgerDirsManager, indexDirsManager, coldLegerDirsManager, entryLogger, coldEntryLogger,
                       statsLogger, allocator, writeCacheSize, readCacheSize, readAheadCacheBatchSize,
                       readAheadCacheBatchBytesSize);
             }

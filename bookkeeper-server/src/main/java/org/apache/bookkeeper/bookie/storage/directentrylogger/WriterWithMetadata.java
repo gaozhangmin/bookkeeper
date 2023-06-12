@@ -51,6 +51,10 @@ class WriterWithMetadata {
         }
     }
 
+    long getPosition() throws IOException{
+        return writer.position();
+    }
+
     int logId() {
         return writer.logId();
     }

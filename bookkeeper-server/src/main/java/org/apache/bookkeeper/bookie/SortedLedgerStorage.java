@@ -75,6 +75,7 @@ public class SortedLedgerStorage
                            LedgerManager ledgerManager,
                            LedgerDirsManager ledgerDirsManager,
                            LedgerDirsManager indexDirsManager,
+                           LedgerDirsManager coldLedgerDirsManager,
                            StatsLogger statsLogger,
                            ByteBufAllocator allocator)
             throws IOException {
@@ -86,6 +87,7 @@ public class SortedLedgerStorage
             ledgerManager,
             ledgerDirsManager,
             indexDirsManager,
+            coldLedgerDirsManager,
             // uses sorted ledger storage's own entry log listener
             // since it manages entry log rotations and checkpoints.
             this,

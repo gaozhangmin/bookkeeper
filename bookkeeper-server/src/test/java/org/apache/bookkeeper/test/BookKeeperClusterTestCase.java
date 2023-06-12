@@ -75,6 +75,7 @@ import org.apache.bookkeeper.replication.Auditor;
 import org.apache.bookkeeper.replication.AutoRecoveryMain;
 import org.apache.bookkeeper.replication.ReplicationWorker;
 import org.apache.bookkeeper.server.Main;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.PortManager;
@@ -859,21 +860,23 @@ public abstract class BookKeeperClusterTestCase {
                     conf, diskChecker, bookieStats.scope(LD_LEDGER_SCOPE));
             LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                     conf, diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
+            LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                    conf, diskChecker, NullStatsLogger.INSTANCE);
 
             UncleanShutdownDetection uncleanShutdownDetection = new UncleanShutdownDetectionImpl(ledgerDirsManager);
 
             storage = BookieResources.createLedgerStorage(
-                    conf, ledgerManager, ledgerDirsManager, indexDirsManager,
+                    conf, ledgerManager, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
                     bookieStats, allocator);
 
             if (conf.isForceReadOnlyBookie()) {
                 bookie = new ReadOnlyBookie(conf, registrationManager, storage,
                                             diskChecker, ledgerDirsManager, indexDirsManager,
-                                            bookieStats, allocator, BookieServiceInfo.NO_INFO);
+                        coldLedgerDirsManager, bookieStats, allocator, BookieServiceInfo.NO_INFO);
             } else {
                 bookie = new BookieImpl(conf, registrationManager, storage,
                                         diskChecker, ledgerDirsManager, indexDirsManager,
-                                        bookieStats, allocator, BookieServiceInfo.NO_INFO);
+                        coldLedgerDirsManager, bookieStats, allocator, BookieServiceInfo.NO_INFO);
             }
             server = new BookieServer(conf, bookie, rootStatsLogger, allocator,
                     uncleanShutdownDetection);

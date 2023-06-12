@@ -97,16 +97,19 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Error reading {}", request, e);
             }
+            LOG.error("Error reading {}", request, e);
             errorCode = BookieProtocol.ENOLEDGER;
         } catch (Bookie.NoEntryException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Error reading {}", request, e);
             }
+            LOG.error("Error reading {}", request, e);
             errorCode = BookieProtocol.ENOENTRY;
         } catch (IOException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Error reading {}", request, e);
             }
+            LOG.error("Error reading {}", request, e);
             errorCode = BookieProtocol.EIO;
         } catch (BookieException.DataUnknownException e) {
             LOG.error("Ledger {} is in an unknown state", request.getLedgerId(), e);

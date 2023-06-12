@@ -105,6 +105,19 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String COMPACTION_RATE = "compactionRate";
     protected static final String COMPACTION_RATE_BY_ENTRIES = "compactionRateByEntries";
     protected static final String COMPACTION_RATE_BY_BYTES = "compactionRateByBytes";
+    //direct db ledger storage parameters
+    protected static final String COLD_STORAGE_ARCHIVE_INTERVAL_MS = "coldStorageArchiveIntervalMs";
+    protected static final String WARM_STORAGE_RETENTION_TIME_MS = "warmStorageRetentionTimeMs";
+    protected static final String COLD_LEDGER_DIRS = "coldLedgerDirectories";
+    protected static final String ARCHIVE_RATE_BY_BYTES = "archiveRateByBytes";
+    protected static final String ARCHIVE_READ_BUFFER_SIZE_BYTES = "archiveReadBufferSizeBytes";
+
+    protected static final String DIRECT_STORAGE_QUEUE_SIZE = "directStorageQueueSize";
+    protected static final String DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC = "directStorageMaxGroupWaitMSec";
+    protected static final String DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY = "directStorageFlushWhenQueueEmpty";
+    protected static final String DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD = "directStorageBufferedEntriesThreshold";
+
+
 
     // Gc Parameters
     protected static final String GC_WAIT_TIME = "gcWaitTime";
@@ -421,6 +434,23 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setGcWaitTime(long gcWaitTime) {
         this.setProperty(GC_WAIT_TIME, Long.toString(gcWaitTime));
+        return this;
+    }
+
+    public long getColdStorageArchiveInterval() {
+        return this.getLong(COLD_STORAGE_ARCHIVE_INTERVAL_MS, 1000);
+    }
+
+    public ServerConfiguration setColdStorageArchiveInterval(long coldStorageArchiveInterval) {
+        this.setProperty(COLD_STORAGE_ARCHIVE_INTERVAL_MS, Long.toString(coldStorageArchiveInterval));
+        return this;
+    }
+
+    public long getWarmStorageRetentionTime() {
+        return this.getLong(WARM_STORAGE_RETENTION_TIME_MS, 6*60*60*1000L);
+    }
+    public ServerConfiguration setWarmStorageRetentionTime(long warmStorageRetentionTime) {
+        this.setProperty(WARM_STORAGE_RETENTION_TIME_MS, Long.toString(warmStorageRetentionTime));
         return this;
     }
 
@@ -1479,6 +1509,67 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
         }
         return idxDirs;
     }
+
+    /**
+     * Get dir name to store cold files.
+     *
+     * @return ledger index dir name, if no cold dirs provided return null
+     */
+    public String[] getColdLedgerDirNames() {
+        if (!this.containsKey(COLD_LEDGER_DIRS)) {
+            return null;
+        }
+        return this.getStringArray(COLD_LEDGER_DIRS);
+    }
+
+    /**
+     * Set dir name to store cold files.
+     *
+     * @param coldLedgerDirs
+     *          Index dir names
+     * @return server configuration.
+     */
+    public ServerConfiguration setColdLedgerDirName(String[] coldLedgerDirs) {
+        this.setProperty(COLD_LEDGER_DIRS, coldLedgerDirs);
+        return this;
+    }
+
+    /**
+     * Get index dir to store cold ledger files.
+     *
+     * @return cold dirs, if no index dirs provided return null
+     */
+    public File[] getColdLedgerDirs() {
+        String[] coldDirNames = getColdLedgerDirNames();
+        if (null == coldDirNames) {
+            return null;
+        }
+        File[] coldDirs = new File[coldDirNames.length];
+        for (int i = 0; i < coldDirNames.length; i++) {
+            coldDirs[i] = new File(coldDirNames[i]);
+        }
+        return coldDirs;
+    }
+
+    public ServerConfiguration setArchiveRateByBytes(int archiveRateByBytes) {
+        setProperty(ARCHIVE_RATE_BY_BYTES, archiveRateByBytes);
+        return this;
+    }
+
+    public int getArchiveRateBytes() {
+        return getInt(ARCHIVE_RATE_BY_BYTES, -1);
+    }
+
+
+    public ServerConfiguration setArchiveReadBufferSize(int archiveReadBufferSize) {
+        setProperty(ARCHIVE_READ_BUFFER_SIZE_BYTES, archiveReadBufferSize);
+        return this;
+    }
+
+    public int getArchiveReadBufferSize() {
+        return getInt(ARCHIVE_READ_BUFFER_SIZE_BYTES, 8192);
+    }
+
 
     /**
      * Is tcp connection no delay.
@@ -4100,6 +4191,90 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setLedgerMetadataRocksdbConf(String ledgerMetadataRocksdbConf) {
         this.setProperty(LEDGER_METADATA_ROCKSDB_CONF, ledgerMetadataRocksdbConf);
+        return this;
+    }
+
+    /**
+     * Set the size of the DirectStorage queue.
+     *
+     * @param directStorageQueueSize
+     *            the max size of DirectStorage queue
+     * @return server configuration.
+     */
+    public ServerConfiguration setDirectStorageQueueSize(int directStorageQueueSize) {
+        this.setProperty(DIRECT_STORAGE_QUEUE_SIZE, directStorageQueueSize);
+        return this;
+    }
+
+    /**
+     * Get size of DirectStorage queue.
+     *
+     * @return the max size of DirectStorage queue.
+     */
+    public int getDirectStorageQueueSize() {
+        return this.getInt(DIRECT_STORAGE_QUEUE_SIZE, 10_000);
+    }
+
+    /**
+     * Maximum latency to impose on a DirectStorage write to achieve grouping. Default is 2ms.
+     *
+     * @return max wait for grouping
+     */
+    public long getDirectStorageMaxGroupWaitMSec() {
+        return getLong(DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC, 2);
+    }
+
+    /**
+     * Sets the maximum latency to impose on a DirectStorage write to achieve grouping.
+     *
+     * @param directStorageMaxGroupWaitMSec
+     *          maximum time to wait in milliseconds.
+     * @return server configuration.
+     */
+    public ServerConfiguration setDirectStorageMaxGroupWaitMSec(long directStorageMaxGroupWaitMSec) {
+        setProperty(DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC, directStorageMaxGroupWaitMSec);
+        return this;
+    }
+
+    /**
+     * Set if we should flush the DirectStorage when queue is empty.
+     */
+    public ServerConfiguration setDirectStorageFlushWhenQueueEmpty(boolean enabled) {
+        setProperty(DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY, enabled);
+        return this;
+    }
+
+    /**
+     * Should we flush the DirectStorage when queue is empty.
+     *
+     * @return flush when queue is empty
+     */
+    public boolean getDirectStorageFlushWhenQueueEmpty() {
+        return getBoolean(DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY, false);
+    }
+
+    /**
+     * Maximum entries to buffer to impose on a DirectStorage write to achieve grouping.
+     * Use {@link #getJournalBufferedWritesThreshold()} if this is set to zero or
+     * less than zero.
+     *
+     * @return max entries to buffer.
+     */
+    public long getDirectStorageBufferedEntriesThreshold() {
+        return getLong(DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD, 0);
+    }
+
+    /**
+     * Set maximum entries to buffer to impose on a DirectStorage write to achieve grouping.
+     * Use {@link #getJournalBufferedWritesThreshold()} set this to zero or less than
+     * zero.
+     *
+     * @param maxEntries
+     *          maximum entries to buffer.
+     * @return server configuration.
+     */
+    public ServerConfiguration setDirectStorageBufferedEntriesThreshold(int maxEntries) {
+        setProperty(DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD, maxEntries);
         return this;
     }
 }
