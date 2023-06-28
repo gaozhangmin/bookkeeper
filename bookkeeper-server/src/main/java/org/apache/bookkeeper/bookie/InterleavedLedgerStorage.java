@@ -262,9 +262,9 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
     }
 
     @Override
-    public void forceGC(Boolean forceMajor, Boolean forceMinor,
-                        Double majorCompactionThreshold, Double minorCompactionThreshold,
-                        Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+    public void forceGC(boolean forceMajor, boolean forceMinor,
+                        double majorCompactionThreshold, double minorCompactionThreshold,
+                        long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         gcThread.enableForceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
                 majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }

@@ -222,7 +222,7 @@ public class GarbageCollectorThread extends SafeRunnable {
 
         this.throttler = new AbstractLogCompactor.Throttler(conf);
         if (minorCompactionInterval > 0 && minorCompactionThreshold > 0) {
-            if (minorCompactionThreshold > 1.0f) {
+            if (minorCompactionThreshold > 1.0d) {
                 throw new IOException("Invalid minor compaction threshold "
                                     + minorCompactionThreshold);
             }
@@ -234,16 +234,16 @@ public class GarbageCollectorThread extends SafeRunnable {
         }
 
         if (isForceAllowCompaction) {
-            if (minorCompactionThreshold > 0 && minorCompactionThreshold < 1.0f) {
+            if (minorCompactionThreshold > 0 && minorCompactionThreshold < 1.0d) {
                 isForceMinorCompactionAllow = true;
             }
-            if (majorCompactionThreshold > 0 && majorCompactionThreshold < 1.0f) {
+            if (majorCompactionThreshold > 0 && majorCompactionThreshold < 1.0d) {
                 isForceMajorCompactionAllow = true;
             }
         }
 
         if (majorCompactionInterval > 0 && majorCompactionThreshold > 0) {
-            if (majorCompactionThreshold > 1.0f) {
+            if (majorCompactionThreshold > 1.0d) {
                 throw new IOException("Invalid major compaction threshold "
                                     + majorCompactionThreshold);
             }
@@ -297,23 +297,17 @@ public class GarbageCollectorThread extends SafeRunnable {
         }
     }
 
-    public void enableForceGC(Boolean forceMajor, Boolean forceMinor,
-                              Double majorCompactionThreshold, Double minorCompactionThreshold,
-                              Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+    public void enableForceGC(boolean forceMajor, boolean forceMinor,
+                              double majorCompactionThreshold, double minorCompactionThreshold,
+                              long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: {}, forceMajor: {}, forceMinor: {}, "
                             + "majorCompactionThreshold :{}, minorCompactionThreshold: {}, "
                             + "majorCompactionMaxTimeMillis: {}, minorCompactionMaxTimeMillis: {}",
-                    Thread.currentThread().getName(), forceMajor, forceMinor, majorCompactionThreshold,
+                Thread.currentThread().getName(), forceMajor, forceMinor, majorCompactionThreshold,
                     minorCompactionThreshold, majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
-            triggerGC(true, forceMajor == null ? suspendMajorCompaction.get() : !forceMajor,
-                forceMinor == null ? suspendMinorCompaction.get() : !forceMinor,
-                    majorCompactionThreshold == null ? this.majorCompactionThreshold : majorCompactionThreshold,
-                    minorCompactionThreshold == null ? this.minorCompactionThreshold : minorCompactionThreshold,
-                    majorCompactionMaxTimeMillis == null ? this.majorCompactionMaxTimeMillis :
-                            majorCompactionMaxTimeMillis,
-                    minorCompactionMaxTimeMillis == null ? this.minorCompactionMaxTimeMillis :
-                            minorCompactionMaxTimeMillis);
+            triggerGC(true, !forceMajor, !forceMinor, majorCompactionThreshold, minorCompactionThreshold,
+                    majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
         }
     }
 
@@ -344,8 +338,7 @@ public class GarbageCollectorThread extends SafeRunnable {
         final boolean suspendMinor = suspendMinorCompaction.get();
 
         return gcExecutor.submit(() -> {
-                runWithFlags(force, suspendMajor, suspendMinor,
-                        majorCompactionThreshold, minorCompactionThreshold,
+                runWithFlags(force, suspendMajor, suspendMinor, majorCompactionThreshold, minorCompactionThreshold,
                         majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             });
     }
@@ -416,8 +409,7 @@ public class GarbageCollectorThread extends SafeRunnable {
         boolean suspendMajor = suspendMajorCompaction.get();
         boolean suspendMinor = suspendMinorCompaction.get();
 
-        runWithFlags(force, suspendMajor, suspendMinor,
-                majorCompactionThreshold, minorCompactionThreshold,
+        runWithFlags(force, suspendMajor, suspendMinor, majorCompactionThreshold, minorCompactionThreshold,
                 majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
 
         if (force) {
@@ -438,12 +430,13 @@ public class GarbageCollectorThread extends SafeRunnable {
         compactor.cleanUpAndRecover();
 
         try {
-         // Extract all of the ledger ID's that comprise all of the entry logs
+            // gc inactive/deleted ledgers
+            // this is used in extractMetaFromEntryLogs to calculate the usage of entry log
+            doGcLedgers();
+
+            // Extract all of the ledger ID's that comprise all of the entry logs
             // (except for the current new one which is still being written to).
             extractMetaFromEntryLogs();
-
-            // gc inactive/deleted ledgers
-            doGcLedgers();
 
             // gc entry logs
             doGcEntryLogs();

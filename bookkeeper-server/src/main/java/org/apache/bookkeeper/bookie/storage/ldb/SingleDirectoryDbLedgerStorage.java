@@ -267,9 +267,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     }
 
     @Override
-    public void forceGC(Boolean forceMajor, Boolean forceMinor,
-                        Double majorCompactionThreshold, Double minorCompactionThreshold,
-                        Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+    public void forceGC(boolean forceMajor, boolean forceMinor,
+                        double majorCompactionThreshold, double minorCompactionThreshold,
+                        long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         gcThread.enableForceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
                 majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }
@@ -386,11 +386,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     @Override
     public boolean isFenced(long ledgerId) throws IOException, BookieException {
-        if (log.isDebugEnabled()) {
-            log.debug("isFenced. ledger: {}", ledgerId);
-        }
-
         boolean isFenced = ledgerIndex.get(ledgerId).getFenced();
+
+        if (log.isDebugEnabled()) {
+            log.debug("ledger: {}, isFenced: {}.", ledgerId, isFenced);
+        }
 
         // Only a negative result while in limbo equates to unknown
         if (!isFenced) {

@@ -233,9 +233,9 @@ public interface LedgerStorage {
     /**
      * Force trigger Garbage Collection with forceMajor or forceMinor parameter.
      */
-    default void forceGC(Boolean forceMajor, Boolean forceMinor,
-                         Double majorCompactionThreshold, Double minorCompactionThreshold,
-                         Long majorCompactionMaxTimeMillis, Long minorCompactionMaxTimeMillis) {
+    default void forceGC(boolean forceMajor, boolean forceMinor,
+                         double majorCompactionThreshold, double minorCompactionThreshold,
+                         long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         return;
     }
 
