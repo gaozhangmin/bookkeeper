@@ -88,7 +88,7 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
         }
 
         @Override
-        public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
+        public void checkpointComplete(Checkpoint checkpoint, boolean compact)
             throws IOException {
             log.info("Complete checkpoint : {}", checkpoint);
         }

@@ -35,6 +35,6 @@ public class BookieAccessor {
         CheckpointSourceList source = new CheckpointSourceList(b.journals);
         Checkpoint cp = source.newCheckpoint();
         b.ledgerStorage.flush();
-        source.checkpointComplete(cp, true, null);
+        source.checkpointComplete(cp, true);
     }
 }

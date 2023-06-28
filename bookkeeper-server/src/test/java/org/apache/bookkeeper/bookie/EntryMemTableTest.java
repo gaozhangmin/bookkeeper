@@ -81,7 +81,7 @@ public class EntryMemTableTest implements CacheCallback, SkipListFlusher, Checkp
     }
 
     @Override
-    public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact)
             throws IOException {
     }
 

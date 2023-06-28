@@ -40,13 +40,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -194,8 +190,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
             return curMark;
         }
 
-        void rollLog(LastLogMark lastMark, LedgerDirsManager ledgerDirsManagerToWrite)
-            throws NoWritableLedgerDirException {
+        void rollLog(LastLogMark lastMark) throws NoWritableLedgerDirException {
             byte[] buff = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             // we should record <logId, logPosition> marked in markLog
@@ -207,8 +202,8 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                 LOG.debug("RollLog to persist last marked log : {}", lastMark.getCurMark());
             }
 
-            List<File> writableLedgerDirs = ledgerDirsManagerToWrite == null ? ledgerDirsManager
-                    .getWritableLedgerDirsForNewLog() : ledgerDirsManagerToWrite.getWritableLedgerDirs();
+            List<File> writableLedgerDirs = ledgerDirsManager
+                    .getWritableLedgerDirsForNewLog();
             for (File dir : writableLedgerDirs) {
                 File file = new File(dir, lastMarkFileName);
                 FileOutputStream fos = null;
@@ -250,12 +245,10 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
                     }
                     bb.clear();
                     mark.readLogMark(bb);
-                    // get the minimum mark position from all the ledger directories to ensure no data loss.
-                    if (curMark.compare(mark) > 0) {
+                    if (curMark.compare(mark) < 0) {
                         curMark.setLogMark(mark.getLogFileId(), mark.getLogFileOffset());
                     }
                 } catch (IOException e) {
-                    curMark.setLogMark(0, 0);
                     LOG.error("Problems reading from " + file + " (this is okay if it is the first time starting this "
                             + "bookie");
                 }
@@ -682,9 +675,7 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
     // Should data be fsynced on disk before triggering the callback
     private final boolean syncData;
 
-    public static final long MAX_LOG_ID = Long.MAX_VALUE;
-    private final LastLogMark lastLogMark = new LastLogMark(MAX_LOG_ID, MAX_LOG_ID);
-    private final Map<String, LastLogMark> logMarkLedgerDirs = new ConcurrentHashMap<>();
+    private final LastLogMark lastLogMark = new LastLogMark(0, 0);
 
     private static final String LAST_MARK_DEFAULT_NAME = "lastMark";
 
@@ -838,28 +829,17 @@ public class Journal extends BookieCriticalThread implements CheckpointSource {
      * @throws IOException
      */
     @Override
-    public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
-        throws IOException {
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException {
         if (!(checkpoint instanceof LogMarkCheckpoint)) {
             return; // we didn't create this checkpoint, so dont do anything with it
         }
         LogMarkCheckpoint lmcheckpoint = (LogMarkCheckpoint) checkpoint;
         LastLogMark mark = lmcheckpoint.mark;
 
-        mark.rollLog(mark, ledgerDirsManager);
+        mark.rollLog(mark);
         if (compact) {
             // list the journals that have been marked
-            List<Long> logs;
-            if (ledgerDirsManager != null) {
-                logMarkLedgerDirs.put(ledgerDirsManager.getAllLedgerDirs().get(0).getPath(), mark);
-                LastLogMark minLogMark = logMarkLedgerDirs.values().stream().min((m1, m2)
-                        -> m1.getCurMark().compare(m2.getCurMark())
-                ).get();
-                logs = listJournalIds(journalDirectory, new JournalRollingFilter(minLogMark));
-            } else {
-                logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
-            }
-
+            List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
             // keep MAX_BACKUP_JOURNALS journal files before marked journal
             if (logs.size() >= maxBackupJournals) {
                 int maxIdx = logs.size() - maxBackupJournals;

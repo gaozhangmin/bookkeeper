@@ -291,7 +291,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             }
 
             @Override
-            public void checkpointComplete(Checkpoint checkPoint, boolean compact, LedgerDirsManager ledgerDirsManager)
+            public void checkpointComplete(Checkpoint checkPoint, boolean compact)
                 throws IOException {
                 // Do nothing.
             }
@@ -1323,9 +1323,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                     return new MyCheckpoint();
                 }
 
-                public void checkpointComplete(CheckpointSource.Checkpoint checkpoint,
-                                               boolean compact,
-                                               LedgerDirsManager ledgerDirsManager) throws IOException {
+                public void checkpointComplete(CheckpointSource.Checkpoint checkpoint, boolean compact)
+                        throws IOException {
                 }
             };
         final byte[] key = "foobar".getBytes();
@@ -1551,7 +1550,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
             @Override
             public void checkpointComplete(Checkpoint checkpoint,
-                    boolean compact, LedgerDirsManager ledgerDirsManager) throws IOException {
+                    boolean compact) throws IOException {
             }
         };
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
@@ -1604,8 +1603,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
             @Override
             public void checkpointComplete(Checkpoint checkpoint,
-                                           boolean compact,
-                                           LedgerDirsManager ledgerDirsManager) throws IOException {
+                                           boolean compact) throws IOException {
             }
         };
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
@@ -1689,7 +1687,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             }
 
             @Override
-            public void checkpointComplete(Checkpoint checkPoint, boolean compact, LedgerDirsManager ledgerDirsManager)
+            public void checkpointComplete(Checkpoint checkPoint, boolean compact)
                 throws IOException {
                 // Do nothing.
             }

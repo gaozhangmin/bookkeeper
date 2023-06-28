@@ -272,7 +272,7 @@ public class JournalWriter implements Runnable {
             for (Journal journal : journals) {
                 Checkpoint cp = journal.newCheckpoint();
                 try {
-                    journal.checkpointComplete(cp, true, null);
+                    journal.checkpointComplete(cp, true);
                 } catch (IOException e) {
                     log.error("Failed to complete checkpoint {}", cp, e);
                 }

@@ -80,8 +80,7 @@ public class SortedLedgerStorageTest {
         }
 
         @Override
-        public void checkpointComplete(Checkpoint checkpoint, boolean compact, LedgerDirsManager ledgerDirsManager)
-            throws IOException {
+        public void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException {
         }
     };
 
