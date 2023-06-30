@@ -168,7 +168,7 @@ public class InterleavedLedgerStorageTest {
                 conf, coldLedgerDirsManager, null, NullStatsLogger.INSTANCE);
         interleavedStorage.initializeWithEntryLogger(
                 conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
-                entryLogger, coldEntryLogger, statsProvider.getStatsLogger(BOOKIE_SCOPE));
+                entryLogger, coldEntryLogger, statsProvider.getStatsLogger(BOOKIE_SCOPE), UnpooledByteBufAllocator.DEFAULT);
         interleavedStorage.setCheckpointer(checkpointer);
         interleavedStorage.setCheckpointSource(checkpointSource);
 

@@ -208,7 +208,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         if (this.coldEntryLogger != null && coldLedgerDirsManager != null) {
             coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager,
                     ledgerDirsManager, coldLedgerDirsManager,
-                    this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger);
+                    this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger, allocator);
             gcThread = new GarbageCollectorThread(conf,
                     ledgerManager, coldLedgerDirsManager, this, coldEntryLogger, ledgerIndexDirStatsLogger);
             coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());

@@ -111,6 +111,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String COLD_LEDGER_DIRS = "coldLedgerDirectories";
     protected static final String ARCHIVE_RATE_BY_BYTES = "archiveRateByBytes";
     protected static final String ARCHIVE_READ_BUFFER_SIZE_BYTES = "archiveReadBufferSizeBytes";
+    protected static final String ARCHIVE_WRITE_BUFFER_SIZE_BYTES = "archiveWriteBufferSizeBytes";
 
     protected static final String DIRECT_STORAGE_QUEUE_SIZE = "directStorageQueueSize";
     protected static final String DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC = "directStorageMaxGroupWaitMSec";
@@ -1567,6 +1568,15 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     }
 
     public int getArchiveReadBufferSize() {
+        return getInt(ARCHIVE_READ_BUFFER_SIZE_BYTES, 8192);
+    }
+
+    public ServerConfiguration setArchiveWriteBufferSize(int archiveWriteBufferSize) {
+        setProperty(ARCHIVE_WRITE_BUFFER_SIZE_BYTES, archiveWriteBufferSize);
+        return this;
+    }
+
+    public int getArchiveWriteBufferSize() {
         return getInt(ARCHIVE_READ_BUFFER_SIZE_BYTES, 8192);
     }
 

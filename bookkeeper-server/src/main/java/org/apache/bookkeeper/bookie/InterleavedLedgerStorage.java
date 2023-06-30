@@ -185,7 +185,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
                 new DefaultEntryLogger(conf, ledgerDirsManager, entryLogListener, statsLogger.scope(ENTRYLOGGER_SCOPE),
                         allocator),
                 coldEntrylogger,
-                statsLogger);
+                statsLogger, allocator);
     }
 
     @Override
@@ -208,7 +208,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
                 LedgerDirsManager coldLedgerDirsManager,
                 EntryLogger coldEntrylogger,
                 EntryLogger entryLogger,
-                StatsLogger statsLogger) throws IOException {
+                StatsLogger statsLogger, ByteBufAllocator allocator) throws IOException {
         checkNotNull(checkpointSource, "invalid null checkpoint source");
         checkNotNull(checkpointer, "invalid null checkpointer");
         this.entryLogger = (DefaultEntryLogger) entryLogger;
@@ -221,7 +221,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
             this.coldEntryLogger.addListener(this);
             coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager,
                     ledgerDirsManager, coldLedgerDirsManager, this, entryLogger, coldEntryLogger,
-                    statsLogger.scope("gc"));
+                    statsLogger.scope("gc"), allocator);
             gcThread = new GarbageCollectorThread(conf, ledgerManager, coldLedgerDirsManager,
                     this, coldEntrylogger, statsLogger.scope("gc"));
             coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());

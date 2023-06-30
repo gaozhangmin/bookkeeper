@@ -20,6 +20,7 @@
  */
 package org.apache.bookkeeper.bookie;
 
+import io.netty.buffer.UnpooledByteBufAllocator;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
@@ -89,7 +90,7 @@ public class ColdStorageArchiveThreadTest {
                 newDirsManager(ledgerDir),
                 newDirsManager(coldLedgerDir),
                 storage, entryLogger, coldEntryLogger,
-                NullStatsLogger.INSTANCE);
+                NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
 
         // Add entries.
         // Ledger 1 is on first entry log
@@ -174,7 +175,7 @@ public class ColdStorageArchiveThreadTest {
                     .setWarmStorageRetentionTime(1000), lm,
             newDirsManager(ledgerDir),
             newDirsManager(coldLedgerDir),
-            storage, entryLogger, coldEntryLogger, NullStatsLogger.INSTANCE);
+            storage, entryLogger, coldEntryLogger, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
 
         // Add entries.
         // Ledger 1 is on first entry log

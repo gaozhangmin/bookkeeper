@@ -25,7 +25,13 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.util.concurrent.RateLimiter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
 import org.apache.bookkeeper.bookie.stats.ColdStorageArchiveStats;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
@@ -38,10 +44,8 @@ import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.Executors;
@@ -86,8 +90,6 @@ public class ColdStorageArchiveThread implements Runnable {
     private volatile int numActiveEntryLogs;
 
     final CompactableLedgerStorage ledgerStorage;
-
-    volatile boolean running = true;
     final ServerConfiguration conf;
     final LedgerDirsManager ledgerDirsManager;
     final ScanAndCompareGarbageCollector garbageCollector;
@@ -95,6 +97,8 @@ public class ColdStorageArchiveThread implements Runnable {
     final AbstractLogCompactor.Throttler scanThrottler;
 
     final AtomicBoolean forceArchive = new AtomicBoolean(false);
+    private final ByteBufAllocator allocator;
+
     /**
      * Create a garbage collector thread.
      *
@@ -107,9 +111,11 @@ public class ColdStorageArchiveThread implements Runnable {
                                     final LedgerDirsManager coldLedgerDirsManager,
                                     final CompactableLedgerStorage ledgerStorage,
                                     EntryLogger entryLogger,
-                                    EntryLogger coldEntryLogger, StatsLogger statsLogger) throws IOException {
+                                    EntryLogger coldEntryLogger, StatsLogger statsLogger,
+                                    ByteBufAllocator allocator) throws IOException {
         this.gcExecutor = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("ColdStorageArchiveThread"));
         this.conf = conf;
+        this.allocator = allocator;
 
         this.ledgerDirsManager = ledgerDirsManager;
         this.entryLogger = entryLogger;
@@ -261,7 +267,7 @@ public class ColdStorageArchiveThread implements Runnable {
      */
     @VisibleForTesting
     void archiveToColdStorage() throws EntryLogMetadataMapException {
-        LOG.info("archiveToColdStorage started");
+        LOG.info("LedgerDir={}, archiveToColdStorage started", ledgerDir);
         long currentTime = System.currentTimeMillis();
         if (this.throttler != null) {
             this.throttler.resetRate(this.conf.getArchiveRateBytes());
@@ -274,42 +280,46 @@ public class ColdStorageArchiveThread implements Runnable {
                 return;
             }
             if (!forceArchive.get() && currentTime - meta.creationTime <= conf.getWarmStorageRetentionTime()) {
+                LOG.info("ArchiveToColdStorage passed, entryLog={}", entryLogId);
                 totalEntryLogSizeAcc.getAndAdd(meta.getRemainingSize());
                 return;
             }
-//            try {
-//                File coldStorageFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-//                File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
+            try {
+                LOG.info("LedgerDir={}, coldLedgerDir={}, Start Archiving entryLog={}-{}",
+                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
+                File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
+                File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
 //                Files.copy(entrylogFile.toPath(), coldStorageFile.toPath());
-//                this.removeEntryLogByArchive(entryLogId);
-//                stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
-//                LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
-//                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
-//            } catch (IOException ex) {
-//                LOG.warn("EntryLog={}-{} is not found during archiving process",
-//                        entryLogId, Long.toHexString(entryLogId), ex);
-//            } catch (EntryLogMetadataMapException e) {
-//                LOG.error("Error in entryLog-metadatamap, Failed to archive entryLog={}-{}",
-//                        entryLogId, Long.toHexString(entryLogId), e);
-//            }
-
-            try (InputStream inputStream = Files.newInputStream(
-                    new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath());
-                 OutputStream outputStream = Files.newOutputStream(
-                         new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath())
-            ) {
-                this.archiveWithRateLimit(inputStream, outputStream);
+                this.archiveWithRateLimit(entrylogFile, coldEntryFile);
                 this.removeEntryLogByArchive(entryLogId);
                 stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
                 LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
                         ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
-            } catch (IOException e) {
+            } catch (IOException ex) {
                 LOG.warn("EntryLog={}-{} is not found during archiving process",
-                        entryLogId, Long.toHexString(entryLogId), e);
+                        entryLogId, Long.toHexString(entryLogId), ex);
             } catch (EntryLogMetadataMapException e) {
                 LOG.error("Error in entryLog-metadatamap, Failed to archive entryLog={}-{}",
                         entryLogId, Long.toHexString(entryLogId), e);
             }
+
+//            try (InputStream inputStream = Files.newInputStream(
+//                    new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath());
+//                 OutputStream outputStream = Files.newOutputStream(
+//                         new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath())
+//            ) {
+//                this.archiveWithRateLimit(inputStream, outputStream);
+//                this.removeEntryLogByArchive(entryLogId);
+//                stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
+//                LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
+//                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
+//            } catch (IOException e) {
+//                LOG.warn("EntryLog={}-{} is not found during archiving process",
+//                        entryLogId, Long.toHexString(entryLogId), e);
+//            } catch (EntryLogMetadataMapException e) {
+//                LOG.error("Error in entryLog-metadatamap, Failed to archive entryLog={}-{}",
+//                        entryLogId, Long.toHexString(entryLogId), e);
+//            }
 
         });
         entryLogger.archivedLogIds();
@@ -398,13 +408,36 @@ public class ColdStorageArchiveThread implements Runnable {
         }
     }
 
+    private void archiveWithRateLimit(File entryLogFile, File coldEntryLogFile) throws IOException {
+        LOG.info("Start archive logFile={}", entryLogFile);
+        FileChannel writeChannel = new RandomAccessFile(coldEntryLogFile, "rw").getChannel();
+        FileChannel readChannel = new RandomAccessFile(entryLogFile, "r").getChannel();
+        BufferedChannel bufferedWriteChannel = new BufferedChannel(
+                allocator, writeChannel, conf.getArchiveWriteBufferSize(), conf.getFlushIntervalInBytes());
+        BufferedReadChannel bufferedReadChannel =
+                new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize());
+
+        long pos = 0;
+        ByteBuf readBuffer = allocator.buffer(conf.getArchiveReadBufferSize());
+        int bytesRead;
+        while (pos < bufferedReadChannel.size()) {
+            if (throttler != null) {
+                throttler.acquire(conf.getArchiveReadBufferSize());
+            }
+            bytesRead = bufferedReadChannel.read(readBuffer, pos);
+            bufferedWriteChannel.write(readBuffer);
+            readBuffer.clear();
+            pos += bytesRead;
+        }
+        bufferedWriteChannel.flushAndForceWrite(true);
+        bufferedWriteChannel.close();
+        readChannel.close();
+        LOG.info("Finished archive logFile={}", entryLogFile);
+    }
+
     @SuppressFBWarnings("SWL_SLEEP_WITH_LOCK_HELD")
     public synchronized void shutdown() throws InterruptedException {
-        if (!this.running) {
-            return;
-        }
         LOG.info("Shutting down ColdLedgerStorageArchiver");
-        this.running = false;
         // Interrupt GC executor thread
         gcExecutor.shutdownNow();
         try {

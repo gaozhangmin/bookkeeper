@@ -159,7 +159,8 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         if (coldEntryLogger != null && coldLedgerDirsManager != null) {
             this.coldEntryLogger = coldEntryLogger;
             coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager, ledgerDirsManager,
-                    coldLedgerDirsManager, this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger);
+                    coldLedgerDirsManager, this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger,
+                    allocator);
             gcThread = new GarbageCollectorThread(conf, ledgerManager, coldLedgerDirsManager, this,
                     coldEntryLogger, ledgerIndexDirStatsLogger);
             coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
