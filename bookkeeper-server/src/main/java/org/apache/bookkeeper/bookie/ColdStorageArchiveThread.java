@@ -55,6 +55,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.util.BookKeeperConstants.METADATA_CACHE;
 
 /**
@@ -98,6 +99,8 @@ public class ColdStorageArchiveThread implements Runnable {
 
     final AtomicBoolean forceArchive = new AtomicBoolean(false);
     private final ByteBufAllocator allocator;
+    private final ByteBuf readBuffer;
+    private final AtomicLong archivedMaxLogId = new AtomicLong(Long.MIN_VALUE);
 
     /**
      * Create a garbage collector thread.
@@ -116,6 +119,7 @@ public class ColdStorageArchiveThread implements Runnable {
         this.gcExecutor = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("ColdStorageArchiveThread"));
         this.conf = conf;
         this.allocator = allocator;
+        this.readBuffer = allocator.buffer(conf.getArchiveReadBufferSize());
 
         this.ledgerDirsManager = ledgerDirsManager;
         this.entryLogger = entryLogger;
@@ -224,10 +228,11 @@ public class ColdStorageArchiveThread implements Runnable {
             stats.getArchiveThreadRuntime().registerSuccessfulEvent(
                     MathUtils.nowInNano() - threadStart, TimeUnit.NANOSECONDS);
         } catch (EntryLogMetadataMapException e) {
-            LOG.error("Error in entryLog-metadatamap, Failed to archive  due to entry-log {}",
-                    e.getMessage(), e);
+            LOG.error(" Failed to archive, error in entryLog-metadatamap", e);
             stats.getArchiveThreadRuntime().registerFailedEvent(
                     MathUtils.nowInNano() - threadStart, TimeUnit.NANOSECONDS);
+        } catch (IOException ioe) {
+            LOG.error("Failed to update last archived log id", ioe);
         }
     }
 
@@ -266,12 +271,11 @@ public class ColdStorageArchiveThread implements Runnable {
      * </p>
      */
     @VisibleForTesting
-    void archiveToColdStorage() throws EntryLogMetadataMapException {
+    void archiveToColdStorage() throws EntryLogMetadataMapException, IOException {
         LOG.info("LedgerDir={}, archiveToColdStorage started", ledgerDir);
         long currentTime = System.currentTimeMillis();
         if (this.throttler != null) {
             this.throttler.resetRate(this.conf.getArchiveRateBytes());
-            LOG.info("Reset archive throttler to {}", this.conf.getArchiveRateBytes());
         }
         AtomicLong totalEntryLogSizeAcc = new AtomicLong(0L);
         this.entryLogMetaMap.forEach((entryLogId, meta) -> {
@@ -280,7 +284,7 @@ public class ColdStorageArchiveThread implements Runnable {
                 return;
             }
             if (!forceArchive.get() && currentTime - meta.creationTime <= conf.getWarmStorageRetentionTime()) {
-                LOG.info("ArchiveToColdStorage passed, entryLog={}", entryLogId);
+                LOG.info("ArchiveToColdStorage passed, entryLog={}-{}", entryLogId, Long.toHexString(entryLogId));
                 totalEntryLogSizeAcc.getAndAdd(meta.getRemainingSize());
                 return;
             }
@@ -293,6 +297,9 @@ public class ColdStorageArchiveThread implements Runnable {
                 this.archiveWithRateLimit(entrylogFile, coldEntryFile);
                 this.removeEntryLogByArchive(entryLogId);
                 stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
+                if (entryLogId > archivedMaxLogId.get()) {
+                    archivedMaxLogId.set(entryLogId);
+                }
                 LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
                         ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
             } catch (IOException ex) {
@@ -301,6 +308,9 @@ public class ColdStorageArchiveThread implements Runnable {
             } catch (EntryLogMetadataMapException e) {
                 LOG.error("Error in entryLog-metadatamap, Failed to archive entryLog={}-{}",
                         entryLogId, Long.toHexString(entryLogId), e);
+            } catch (Exception unexpected) {
+                LOG.error("Unexpected exception while archiving entryLog={}-{}",
+                        entryLogId, Long.toHexString(entryLogId), unexpected);
             }
 
 //            try (InputStream inputStream = Files.newInputStream(
@@ -326,8 +336,30 @@ public class ColdStorageArchiveThread implements Runnable {
         LOG.info("LedgerDir={}, coldLedgerDir={}, archiveToColdStorage finished, archivedMaxLogId={}-{}",
                 ledgerDir, coldLedgerDir, entryLogger.getMaxArchivedLogId(),
                 Long.toHexString(entryLogger.getMaxArchivedLogId()));
+        setLastArchivedLogId(ledgerDir, archivedMaxLogId.get());
         this.numActiveEntryLogs = entryLogMetaMap.size();
         this.totalEntryLogSize = totalEntryLogSizeAcc.get();
+    }
+
+    /**
+     * writes the given id to the "lastArchivedId" file in the given directory.
+     */
+    private void setLastArchivedLogId(File dir, long logId) throws IOException {
+        FileOutputStream fos;
+        fos = new FileOutputStream(new File(dir, "lastArchivedId"));
+        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos, UTF_8));
+        try {
+            bw.write(Long.toHexString(logId) + "\n");
+            bw.flush();
+        } catch (IOException e) {
+            LOG.warn("Failed write lastArchivedId file");
+        } finally {
+            try {
+                bw.close();
+            } catch (IOException e) {
+                LOG.error("Could not close lastArchivedId file in {}", dir.getPath());
+            }
+        }
     }
 
     /**
@@ -409,7 +441,6 @@ public class ColdStorageArchiveThread implements Runnable {
     }
 
     private void archiveWithRateLimit(File entryLogFile, File coldEntryLogFile) throws IOException {
-        LOG.info("Start archive logFile={}", entryLogFile);
         FileChannel writeChannel = new RandomAccessFile(coldEntryLogFile, "rw").getChannel();
         FileChannel readChannel = new RandomAccessFile(entryLogFile, "r").getChannel();
         BufferedChannel bufferedWriteChannel = new BufferedChannel(
@@ -418,7 +449,6 @@ public class ColdStorageArchiveThread implements Runnable {
                 new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize());
 
         long pos = 0;
-        ByteBuf readBuffer = allocator.buffer(conf.getArchiveReadBufferSize());
         int bytesRead;
         while (pos < bufferedReadChannel.size()) {
             if (throttler != null) {
@@ -432,7 +462,6 @@ public class ColdStorageArchiveThread implements Runnable {
         bufferedWriteChannel.flushAndForceWrite(true);
         bufferedWriteChannel.close();
         readChannel.close();
-        LOG.info("Finished archive logFile={}", entryLogFile);
     }
 
     @SuppressFBWarnings("SWL_SLEEP_WITH_LOCK_HELD")
@@ -440,7 +469,9 @@ public class ColdStorageArchiveThread implements Runnable {
         LOG.info("Shutting down ColdLedgerStorageArchiver");
         // Interrupt GC executor thread
         gcExecutor.shutdownNow();
+        ReferenceCountUtil.release(readBuffer);
         try {
+            setLastArchivedLogId(ledgerDir, archivedMaxLogId.get());
             entryLogMetaMap.close();
         } catch (Exception e) {
             LOG.warn("Failed to close entryLog metadata-map", e);

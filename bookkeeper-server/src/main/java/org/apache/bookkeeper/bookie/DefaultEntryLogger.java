@@ -344,9 +344,9 @@ public class DefaultEntryLogger implements EntryLogger {
                         "Entry log directory '" + dir + "' does not exist");
             }
             long lastLogId = getLastLogId(dir);
-            long lowestLogId = readLogIdByScan(dir, true);
-            if (lowestLogId > archivedMaxLogId) {
-                archivedMaxLogId = lowestLogId - 1;
+            long lastArchivedLogId = getLastArchivedLogId(dir);
+            if (lastArchivedLogId > archivedMaxLogId) {
+                archivedMaxLogId = lastArchivedLogId;
             }
             if (lastLogId > logId) {
                 logId = lastLogId;
@@ -575,6 +575,16 @@ public class DefaultEntryLogger implements EntryLogger {
         return readLogIdByScan(dir, false);
     }
 
+    private long getLastArchivedLogId(File dir) {
+        long id = readLastArchivedLogId(dir);
+        // read success
+        if (id > 0) {
+            return id;
+        }
+        // read failed, scan the ledger directories to find the biggest log id
+        return readLogIdByScan(dir, true) - 1;
+    }
+
     private long readLogIdByScan(File dir, boolean reverse) {
         // read failed, scan the ledger directories to find the biggest log id
         File[] logFiles = dir.listFiles(file -> file.getName().endsWith(".log"));
@@ -595,6 +605,24 @@ public class DefaultEntryLogger implements EntryLogger {
             return logs.get(0);
         }  else {
             return logs.get(logs.size() - 1);
+        }
+    }
+
+    /**
+     * reads id from the "lastArchivedId" file in the given directory.
+     */
+    private long readLastArchivedLogId(File f) {
+        FileInputStream fis;
+        try {
+            fis = new FileInputStream(new File(f, "lastArchivedId"));
+        } catch (FileNotFoundException e) {
+            return INVALID_LID;
+        }
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(fis, UTF_8))) {
+            String lastIdString = br.readLine();
+            return Long.parseLong(lastIdString, 16);
+        } catch (IOException | NumberFormatException e) {
+            return INVALID_LID;
         }
     }
 
