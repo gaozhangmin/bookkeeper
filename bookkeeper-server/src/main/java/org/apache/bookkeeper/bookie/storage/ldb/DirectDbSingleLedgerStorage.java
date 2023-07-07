@@ -3,6 +3,7 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.apache.bookkeeper.bookie.DefaultEntryLogger.logIdForOffset;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.posForOffset;
 
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.procedures.ObjectProcedure;
@@ -18,7 +19,21 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.Recycler;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
-import org.apache.bookkeeper.bookie.*;
+import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieCriticalThread;
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.CheckpointSource;
+import org.apache.bookkeeper.bookie.Checkpointer;
+import org.apache.bookkeeper.bookie.ColdStorageArchiveThread;
+import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
+import org.apache.bookkeeper.bookie.EntryLocation;
+import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
+import org.apache.bookkeeper.bookie.GarbageCollectorThread;
+import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
+import org.apache.bookkeeper.bookie.LedgerCache;
+import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.LedgerEntryPage;
+import org.apache.bookkeeper.bookie.StateManager;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.common.collections.BatchedArrayBlockingQueue;
 import org.apache.bookkeeper.common.collections.BatchedBlockingQueue;
@@ -50,23 +65,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements CompactableLedgerStorage {
     private static final Logger LOG = LoggerFactory.getLogger(DirectDbSingleLedgerStorage.class);
 
     protected final EntryLogger entryLogger;
-    protected  EntryLogger coldEntryLogger;
+    protected EntryLogger coldEntryLogger;
 
     protected final LedgerMetadataIndex ledgerIndex;
     protected final EntryLocationIndex entryLocationIndex;
 
     private final ConcurrentLongHashMap<TransientLedgerInfo> transientLedgerInfoCache;
 
-    private ColdStorageArchiveThread coldStorageBackupThread  = null;
+    private ColdStorageArchiveThread coldStorageBackupThread = null;
 
     private final GarbageCollectorThread gcThread;
 
@@ -94,7 +109,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
     private final long bufferedEntriesThreshold;
     volatile boolean running = true;
     final ForceWriteThread forceWriteThread;
-    final String ledgerBaseDir;
+    private final String ledgerBaseDir;
     private String coldLedgerBaseDir = null;
     private final Counter callbackTime;
     private final ReadCache readCache;
@@ -102,6 +117,11 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
     private final int readAheadCacheBatchSize;
     private final long readAheadCacheBatchBytesSize;
     private final long maxReadAheadBytesSize;
+
+    private final AtomicBoolean downgradeToColdStorage = new AtomicBoolean(false);
+
+    private final LedgerDirsManager ledgerDirsManager;
+    private final LedgerDirsManager indexDirsManager;
 
     public DirectDbSingleLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
                                        LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
@@ -113,7 +133,9 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         checkArgument(ledgerDirsManager.getAllLedgerDirs().size() == 1,
                 "Db implementation only allows for one storage dir");
         this.conf = conf;
-        readCacheMaxSize = readCacheSize;
+        this.readCacheMaxSize = readCacheSize;
+        this.ledgerDirsManager = ledgerDirsManager;
+        this.indexDirsManager = indexDirsManager;
         this.readAheadCacheBatchSize = readAheadCacheBatchSize;
         this.readAheadCacheBatchBytesSize = readAheadCacheBatchBytesSize;
         // Do not attempt to perform read-ahead more than half the total size of the cache
@@ -121,7 +143,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
         readCache = new ReadCache(allocator, readCacheMaxSize);
         String ledgerBaseDir = ledgerDirsManager.getAllLedgerDirs().get(0).getPath();
-        this.ledgerBaseDir =ledgerBaseDir;
+        this.ledgerBaseDir = ledgerBaseDir;
         // indexBaseDir default use ledgerBaseDir
         String indexBaseDir = ledgerBaseDir;
         if (CollectionUtils.isEmpty(indexDirsManager.getAllLedgerDirs())) {
@@ -164,6 +186,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             gcThread = new GarbageCollectorThread(conf, ledgerManager, coldLedgerDirsManager, this,
                     coldEntryLogger, ledgerIndexDirStatsLogger);
             coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+            ledgerDirsManager.addLedgerDirsListener(getDiskCacheDirsListener());
         } else {
             gcThread = new GarbageCollectorThread(conf,
                     ledgerManager, ledgerDirsManager, this, entryLogger, ledgerIndexDirStatsLogger);
@@ -178,6 +201,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             queue = new BatchedArrayBlockingQueue<>(conf.getDirectStorageQueueSize());
             forceWriteRequests = new BatchedArrayBlockingQueue<>(conf.getDirectStorageQueueSize());
         }
+
         dbLedgerStorageStats = new DirectDBLedgerStorageStats(ledgerIndexDirStatsLogger,
                 readCache::size, readCache::count);
         this.maxGroupWaitInNanos = TimeUnit.MILLISECONDS.toNanos(conf.getDirectStorageMaxGroupWaitMSec());// Unless there is a cap on the max wait (which requires group force writes)
@@ -404,6 +428,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
     @Override
     public void flush() throws IOException {
         entryLogger.flush();
+        ledgerIndex.flush();
     }
 
     @Override
@@ -539,25 +564,77 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 "getListOfEntriesOfLedger method is currently unsupported for SingleDirectoryDbLedgerStorage");
     }
 
+    private LedgerDirsManager.LedgerDirsListener getDiskCacheDirsListener() {
+        return new LedgerDirsManager.LedgerDirsListener() {
+
+            @Override
+            public void diskAlmostFull(File disk) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        && downgradeToColdStorage.compareAndSet(false, true)) {
+                    LOG.info("Disk {} is almost full. Downgrade to coldStorage", disk);
+                    try {
+                        entryLogger.flush();
+                    } catch (IOException e) {
+                        LOG.error("Error flushing entry logger during downgradeToColdStorage progress", e);
+                    }
+                }
+            }
+
+            @Override
+            public void diskUnderWarnThreshold(File disk) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        && downgradeToColdStorage.compareAndSet(true, false)) {
+                    LOG.info("Disk {} is UnderWarnThreshold. Upgrade to disk cache", disk);
+                    try {
+                        coldEntryLogger.flush();
+                        entryLogger.archivedLogIds();
+                    } catch (IOException e) {
+                        LOG.error("Error flushing coldEntryLogger during disabling downgradeToColdStorage", e);
+                    }
+                }
+            }
+        };
+    }
+
+
+
     private LedgerDirsManager.LedgerDirsListener getLedgerDirsListener() {
         return new LedgerDirsManager.LedgerDirsListener() {
 
             @Override
             public void diskAlmostFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                    }
+                }
+            }
+
+            @Override
+            public void diskUnderWarnThreshold(File disk) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.disableForceGC();
+                    } else {
+                        gcThread.resumeMajorGC();
+                    }
                 }
             }
 
             @Override
             public void diskFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
-                    gcThread.suspendMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                        gcThread.suspendMinorGC();
+                    }
                 }
             }
 
@@ -573,25 +650,32 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
             @Override
             public void diskWritable(File disk) {
-                // we have enough space now
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    // disable force gc.
-                    gcThread.disableForceGC();
-                } else {
-                    // resume compaction to normal.
-                    gcThread.resumeMajorGC();
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                    // we have enough space now
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        // disable force gc.
+                        gcThread.disableForceGC();
+                    } else {
+                        // resume compaction to normal.
+                        gcThread.resumeMajorGC();
+                        gcThread.resumeMinorGC();
+                    }
                 }
+
             }
 
             @Override
             public void diskJustWritable(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    // if a disk is just writable, we still need force gc.
-                    gcThread.enableForceGC();
-                } else {
-                    // still under warn threshold, only resume minor compaction.
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
+                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        // if a disk is just writable, we still need force gc.
+                        gcThread.enableForceGC();
+                    } else {
+                        // still under warn threshold, only resume minor compaction.
+                        gcThread.resumeMinorGC();
+                    }
                 }
             }
         };
@@ -667,8 +751,8 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         long readEntryStartNano = MathUtils.nowInNano();
         long entryLogId = logIdForOffset(entryLocation);
         if (coldEntryLogger != null && entryLogger.isArchivedEntryLog(entryLogId)) {
-            LOG.info("Reading entry from coldStorage={}. entryLogId={}-{}", coldLedgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId));
+            LOG.info("Reading entry from coldStorage={}. entryLogId={}-{}-{}", coldLedgerBaseDir,
+                    entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
             try {
                 entry = coldEntryLogger.readEntry(ledgerId, entryId, entryLocation);
             } finally {
@@ -682,8 +766,8 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
             fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation);
         } else {
-            LOG.info("Reading entry from diskCache={}. entryLogId={}-{}", ledgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId));
+            LOG.info("Reading entry from diskCache={}. entryLogId={}-{}-{}", ledgerBaseDir,
+                    entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
             try {
                 entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
             } finally {
@@ -707,7 +791,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             long currentEntryLocation = firstEntryLocation;
 
             while (chargeReadAheadCache(count, size) && currentEntryLogId == firstEntryLogId) {
-                ByteBuf entry = entryLogger.readEntry(orginalLedgerId,
+                ByteBuf entry = coldEntryLogger.readEntry(orginalLedgerId,
                         firstEntryId, currentEntryLocation);
 
                 try {
@@ -773,8 +857,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         ByteBuf content;
 
         if (coldEntryLogger != null && entryLogger.isArchivedEntryLog(entryLogId)) {
-            LOG.info("Reading last entry from coldStorage={}. entryLogId={}-{}", coldLedgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId));
             try {
                 content = coldEntryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
             } finally {
@@ -783,8 +865,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
             }
         } else {
-            LOG.info("Reading last entry from diskCache={}. entryLogId={}-{}", ledgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId));
             try {
                 content = entryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
             } finally {
@@ -895,6 +975,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         forceWriteThread.start();
         Stopwatch flushWatcher = Stopwatch.createUnstarted();
         long batchSize = 0;
+        KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
         try {
             boolean groupWhenTimeout = false;
             long dequeueStartTime = 0L;
@@ -902,7 +983,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             int localQueueEntriesIdx = 0;
             int localQueueEntriesLen = 0;
             QueueEntry qe = null;
-            KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
+
             while (true) {
                 if (qe == null) {
                     if (dequeueStartTime != 0) {
@@ -1003,7 +1084,11 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                                 .registerSuccessfulValue(numEntriesToFlush);
                         dbLedgerStorageStats.getForceWriteBatchBytesStats()
                                 .registerSuccessfulValue(batchSize);
-                        forceWriteRequests.put(createForceWriteRequest(toFlush, entryLogger, ledgerIndex));
+                        if (downgradeToColdStorage.get()) {
+                            forceWriteRequests.put(createForceWriteRequest(toFlush, coldEntryLogger, ledgerIndex));
+                        } else {
+                            forceWriteRequests.put(createForceWriteRequest(toFlush, entryLogger, ledgerIndex));
+                        }
 
                         toFlush = entryListRecycler.newInstance();
                         numEntriesToFlush = 0;
@@ -1019,8 +1104,19 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 if (qe == null) { // no more queue entry
                     continue;
                 }
-
-                long location = entryLogger.addEntry(qe.ledgerId, qe.entry);
+                long location;
+                if (downgradeToColdStorage.get()) {
+                    location = coldEntryLogger.addEntry(qe.ledgerId, qe.entry);
+                    long entryLogId = logIdForOffset(location);
+                    entryLogger.archivedEntryLog(entryLogId);
+                    LOG.info("Downgrading to cold storage. {}:{}, entryLogId={}-{}-{}",
+                            qe.ledgerId, qe.entryId, entryLogId, Long.toHexString(entryLogId), posForOffset(location));
+                } else {
+                    location = entryLogger.addEntry(qe.ledgerId, qe.entry);
+                    long entryLogId = logIdForOffset(location);
+                    LOG.info("Downgrading to cold storage. {}:{}, entryLogId={}-{}-{}",
+                            qe.ledgerId, qe.entryId, entryLogId, Long.toHexString(entryLogId), posForOffset(location));
+                }
                 entryLocationIndex.addLocation(batch, qe.ledgerId, qe.entryId, location);
                 long lac = qe.entry.getLong(qe.entry.readerIndex() + 16);
                 updateCachedLacIfNeeded(qe.ledgerId, lac);
@@ -1047,6 +1143,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             LOG.info("DirectDbLedgerStorage exits when shutting down");
         } finally {
             try {
+                batch.flush();
                 this.shutdown();
             } catch (Exception ioe) {
                 LOG.error("Exception during shutdown", ioe);
@@ -1123,7 +1220,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
     /**
      * ForceWriteThread is a background thread which makes the DirectStorage durable periodically.
-     *
      */
     private class ForceWriteThread extends BookieCriticalThread {
         volatile boolean running = true;
@@ -1135,6 +1231,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             super("ForceWriteThread");
             this.threadToNotifyOnEx = threadToNotifyOnEx;
         }
+
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
@@ -1205,7 +1302,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             // Regardless of what caused us to exit, we should notify the
             // the parent thread as it should either exit or be in the process
             // of exiting else we will have write requests hang
-            threadToNotifyOnEx.interrupt();
             threadToNotifyOnEx.interrupt();
         }
 
@@ -1322,7 +1418,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
         // Iterate over all the entries pages
         KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
-        for (LedgerCache.PageEntries page: pages) {
+        for (LedgerCache.PageEntries page : pages) {
             try (LedgerEntryPage lep = page.getLEP()) {
                 lep.getEntries((entryId, location) -> {
                     entryLocationIndex.addLocation(batch, ledgerId, entryId, location);

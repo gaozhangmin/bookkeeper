@@ -312,6 +312,40 @@ public class DefaultEntryLogger implements EntryLogger {
         this(conf, ledgerDirsManager, null, NullStatsLogger.INSTANCE, PooledByteBufAllocator.DEFAULT);
     }
 
+    // for cold storage, the entry log id should be continuous in cold storage
+    public DefaultEntryLogger(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
+                              EntryLogListener listener, StatsLogger statsLogger, ByteBufAllocator allocator,
+                              RecentEntryLogsStatus recentEntryLogsStatus,
+                              EntryLoggerAllocator entryLoggerAllocator) throws IOException {
+        //We reserve 500 bytes as overhead for the protocol.  This is not 100% accurate
+        // but the protocol varies so an exact value is difficult to determine
+        this.maxSaneEntrySize = conf.getNettyMaxFrameSizeBytes() - 500;
+        this.allocator = allocator;
+        this.ledgerDirsManager = ledgerDirsManager;
+        this.conf = conf;
+        entryLogPerLedgerEnabled = conf.isEntryLogPerLedgerEnabled();
+        if (listener != null) {
+            addListener(listener);
+        }
+        // Initialize the entry log header buffer. This cannot be a static object
+        // since in our unit tests, we run multiple Bookies and thus EntryLoggers
+        // within the same JVM. All of these Bookie instances access this header
+        // so there can be race conditions when entry logs are rolled over and
+        // this header buffer is cleared before writing it into the new logChannel.
+        logfileHeader.writeBytes("BKLO".getBytes(UTF_8));
+        logfileHeader.writeInt(HEADER_CURRENT_VERSION);
+        logfileHeader.writerIndex(LOGFILE_HEADER_SIZE);
+        this.recentlyCreatedEntryLogsStatus = recentEntryLogsStatus;
+        this.entryLoggerAllocator = entryLoggerAllocator;
+        if (entryLogPerLedgerEnabled) {
+            this.entryLogManager = new EntryLogManagerForEntryLogPerLedger(conf, ledgerDirsManager,
+                    entryLoggerAllocator, listeners, recentlyCreatedEntryLogsStatus, statsLogger);
+        } else {
+            this.entryLogManager = new EntryLogManagerForSingleEntryLog(conf, ledgerDirsManager, entryLoggerAllocator,
+                    listeners, recentlyCreatedEntryLogsStatus);
+        }
+    }
+
     public DefaultEntryLogger(ServerConfiguration conf,
                               LedgerDirsManager ledgerDirsManager, EntryLogListener listener, StatsLogger statsLogger,
                               ByteBufAllocator allocator) throws IOException {
@@ -538,8 +572,12 @@ public class DefaultEntryLogger implements EntryLogger {
     /**
      * get EntryLoggerAllocator, Just for tests.
      */
-    EntryLoggerAllocator getEntryLoggerAllocator() {
+    public EntryLoggerAllocator getEntryLoggerAllocator() {
         return entryLoggerAllocator;
+    }
+
+    public DefaultEntryLogger.RecentEntryLogsStatus getRecentlyCreatedEntryLogsStatus() {
+        return recentlyCreatedEntryLogsStatus;
     }
 
     /**
@@ -750,7 +788,7 @@ public class DefaultEntryLogger implements EntryLogger {
     }
 
 
-    static long posForOffset(long location) {
+    public static long posForOffset(long location) {
         return location & 0xffffffffL;
     }
 
@@ -1311,7 +1349,7 @@ public class DefaultEntryLogger implements EntryLogger {
      * we could get least unflushed LogId.
      *
      */
-    static class RecentEntryLogsStatus {
+    public static class RecentEntryLogsStatus {
         private final SortedMap<Long, Boolean> entryLogsStatusMap;
         private final SortedMap<Long, Boolean> archivedEntryLogsStatusMap;
         private long leastUnflushedLogId;

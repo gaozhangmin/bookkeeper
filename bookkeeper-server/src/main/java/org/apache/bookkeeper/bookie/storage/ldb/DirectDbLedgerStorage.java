@@ -34,6 +34,7 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.Checkpointer;
 import org.apache.bookkeeper.bookie.DefaultEntryLogger;
+import org.apache.bookkeeper.bookie.EntryLoggerAllocator;
 import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.bookie.LedgerCache;
@@ -174,7 +175,7 @@ public class DirectDbLedgerStorage implements LedgerStorage {
             iDirs[0] = indexDir.getParentFile();
             LedgerDirsManager idm = new LedgerDirsManager(conf, iDirs, indexDirsManager.getDiskChecker(),
                     NullStatsLogger.INSTANCE);
-            EntryLogger entrylogger = initializeEntrylogger(ldm, ledgerDir);
+            EntryLogger entrylogger = new DefaultEntryLogger(conf, ldm, null, statsLogger, allocator);
 
             LedgerDirsManager cdm = null;
             EntryLogger coldEntrylogger = null;
@@ -186,7 +187,12 @@ public class DirectDbLedgerStorage implements LedgerStorage {
                 cDir[0] = coldLedgerDir.getParentFile();
                 cdm = new LedgerDirsManager(conf, cDir, coldLedgerDirsManager.getDiskChecker(),
                         NullStatsLogger.INSTANCE);
-                coldEntrylogger = initializeEntrylogger(cdm, coldLedgerDir);
+                EntryLoggerAllocator entryLoggerAllocator = ((DefaultEntryLogger) entrylogger).getEntryLoggerAllocator();
+                DefaultEntryLogger.RecentEntryLogsStatus recentEntryLogsStatus
+                        = ((DefaultEntryLogger) entrylogger).getRecentlyCreatedEntryLogsStatus();
+
+                coldEntrylogger = new DefaultEntryLogger(conf, cdm, null, statsLogger,
+                        allocator, recentEntryLogsStatus, entryLoggerAllocator);
             }
             ledgerStorageList.add(newDirectDbSingleLedgerStorage(conf, ledgerManager,
                     ldm, idm, cdm, entrylogger, coldEntrylogger, statsLogger,

@@ -21,17 +21,17 @@
 
 package org.apache.bookkeeper.bookie;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.bookkeeper.util.BookKeeperConstants.METADATA_CACHE;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.util.concurrent.RateLimiter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.Unpooled;
-import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
-import io.netty.util.concurrent.FastThreadLocal;
 import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
 import org.apache.bookkeeper.bookie.stats.ColdStorageArchiveStats;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
@@ -54,9 +54,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.apache.bookkeeper.util.BookKeeperConstants.METADATA_CACHE;
 
 /**
  * This is the garbage collector thread that runs in the background to
@@ -183,13 +180,18 @@ public class ColdStorageArchiveThread implements Runnable {
 
             @Override
             public void diskAlmostFull(File disk) {
-                enableForceArchive();
+                if (disk.getPath().equals(ledgerDir.getPath())) {
+                    // we are running out of space, enable force archive
+                    enableForceArchive();
+                }
             }
 
             @Override
             public void diskWritable(File disk) {
-                // we have enough space now
-               disableForceArchive();
+                if (disk.getPath().equals(ledgerDir.getPath())) {
+                    // we have enough space now
+                    disableForceArchive();
+                }
             }
         };
     }
@@ -272,7 +274,6 @@ public class ColdStorageArchiveThread implements Runnable {
      */
     @VisibleForTesting
     void archiveToColdStorage() throws EntryLogMetadataMapException, IOException {
-        LOG.info("LedgerDir={}, archiveToColdStorage started", ledgerDir);
         long currentTime = System.currentTimeMillis();
         if (this.throttler != null) {
             this.throttler.resetRate(this.conf.getArchiveRateBytes());
@@ -284,13 +285,10 @@ public class ColdStorageArchiveThread implements Runnable {
                 return;
             }
             if (!forceArchive.get() && currentTime - meta.creationTime <= conf.getWarmStorageRetentionTime()) {
-                LOG.info("ArchiveToColdStorage passed, entryLog={}-{}", entryLogId, Long.toHexString(entryLogId));
                 totalEntryLogSizeAcc.getAndAdd(meta.getRemainingSize());
                 return;
             }
             try {
-                LOG.info("LedgerDir={}, coldLedgerDir={}, Start Archiving entryLog={}-{}",
-                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
                 File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
                 File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
 //                Files.copy(entrylogFile.toPath(), coldStorageFile.toPath());
@@ -458,6 +456,7 @@ public class ColdStorageArchiveThread implements Runnable {
             bufferedWriteChannel.write(readBuffer);
             readBuffer.clear();
             pos += bytesRead;
+            stats.getArchivedEntryLogSize().addCount(bytesRead);
         }
         bufferedWriteChannel.flushAndForceWrite(true);
         bufferedWriteChannel.close();

@@ -48,6 +48,12 @@ public class ColdStorageArchiveStats {
     private final Counter reclaimedDiskCacheSpaceViaArchive;
 
     @StatsDoc(
+            name = ARCHIVED_ENTRY_LOG_SIZE_BYTES,
+            help = "Size of data via archiving old entry log files"
+    )
+    private final Counter archivedEntryLogSize;
+
+    @StatsDoc(
         name = DISK_CACHE_ACTIVE_ENTRY_LOG_COUNT,
         help = "Current number of active entry log files in disks cache"
     )
@@ -74,6 +80,7 @@ public class ColdStorageArchiveStats {
                                    Supplier<Long> activeEntryLogSpaceBytesSupplier) {
         this.statsLogger = statsLogger;
         this.reclaimedDiskCacheSpaceViaArchive = statsLogger.getCounter(RECLAIMED_DISK_CACHE_SPACE_BYTES);
+        this.archivedEntryLogSize = statsLogger.getCounter(ARCHIVED_ENTRY_LOG_SIZE_BYTES);
         this.archiveThreadRuntime = statsLogger.getOpStatsLogger(ARCHIVE_THREAD_RUNTIME);
         this.extractionRunTime = statsLogger.getOpStatsLogger(EXTRACT_METADATA_RUNTIME);
 
