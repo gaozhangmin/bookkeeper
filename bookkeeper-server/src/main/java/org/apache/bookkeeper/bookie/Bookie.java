@@ -54,6 +54,11 @@ public interface Bookie {
     long getTotalDiskSpace() throws IOException;
     long getTotalFreeSpace() throws IOException;
 
+    // these can probably be moved out and called directly on ledgerdirmanager
+    long getTotalColdDiskSpace() throws IOException;
+    long getTotalFreeColdSpace() throws IOException;
+
+
     // TODO: Shouldn't this be async?
     ByteBuf readEntry(long ledgerId, long entryId)
             throws IOException, NoLedgerException, BookieException;

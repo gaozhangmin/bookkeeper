@@ -47,6 +47,7 @@ import org.apache.bookkeeper.meta.MetadataBookieDriver;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.server.Main;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stream.server.conf.BookieConfiguration;
 import org.apache.bookkeeper.util.DiskChecker;
@@ -99,8 +100,12 @@ public class BookieService extends AbstractLifecycleComponent<BookieConfiguratio
                 serverConf, diskChecker, bookieStats.scope(LD_LEDGER_SCOPE));
         LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                 serverConf, diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                serverConf, diskChecker, NullStatsLogger.INSTANCE);
+
         LedgerStorage storage = BookieResources.createLedgerStorage(
-                serverConf, ledgerManager, ledgerDirsManager, indexDirsManager, bookieStats, allocator);
+                serverConf, ledgerManager, ledgerDirsManager,
+                indexDirsManager, coldLedgerDirsManager, bookieStats, allocator);
         UncleanShutdownDetection uncleanShutdownDetection = new UncleanShutdownDetectionImpl(ledgerDirsManager);
 
         LegacyCookieValidation cookieValidation = new LegacyCookieValidation(serverConf, rm);
@@ -109,18 +114,15 @@ public class BookieService extends AbstractLifecycleComponent<BookieConfiguratio
         Bookie bookie;
         if (serverConf.isForceReadOnlyBookie()) {
             bookie = new ReadOnlyBookie(serverConf, rm, storage, diskChecker,
-                    ledgerDirsManager, indexDirsManager,
-                    statsLogger.scope(BOOKIE_SCOPE),
-                    allocator, bookieServiceInfoProvider);
+                    ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
+                    statsLogger.scope(BOOKIE_SCOPE), allocator, bookieServiceInfoProvider);
         } else {
             bookie = new BookieImpl(serverConf, rm, storage, diskChecker,
-                    ledgerDirsManager, indexDirsManager,
-                    statsLogger.scope(BOOKIE_SCOPE),
-                    allocator, bookieServiceInfoProvider);
+                    ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
+                    statsLogger.scope(BOOKIE_SCOPE), allocator, bookieServiceInfoProvider);
         }
 
-        this.bs = new BookieServer(serverConf, bookie,
-                statsLogger, allocator, uncleanShutdownDetection);
+        this.bs = new BookieServer(serverConf, bookie, statsLogger, allocator, uncleanShutdownDetection);
         log.info(hello);
     }
 

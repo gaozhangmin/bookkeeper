@@ -648,6 +648,7 @@ public class LedgerCacheTest {
                                LedgerManager ledgerManager,
                                LedgerDirsManager ledgerDirsManager,
                                LedgerDirsManager indexDirsManager,
+                               LedgerDirsManager coldLedgerDirsManager,
                                StatsLogger statsLogger,
                                ByteBufAllocator allocator) throws IOException {
             super.initialize(
@@ -655,6 +656,7 @@ public class LedgerCacheTest {
                 ledgerManager,
                 ledgerDirsManager,
                 indexDirsManager,
+                coldLedgerDirsManager,
                 statsLogger,
                 allocator);
             this.conf = conf;

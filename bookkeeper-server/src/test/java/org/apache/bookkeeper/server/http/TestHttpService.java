@@ -920,6 +920,8 @@ public class TestHttpService extends BookKeeperClusterTestCase {
         BookieInfoService.BookieInfo bs = JsonUtil.fromJson(response1.getBody(), BookieInfoService.BookieInfo.class);
         assertTrue(bs.getFreeSpace() > 0);
         assertTrue(bs.getTotalSpace() > 0);
+        assertTrue(bs.getTotalColdDiskSpace()  == 0);
+        assertTrue(bs.getFreeColdDiskSpace()  == 0);
 
         // Try using POST instead of GET
         HttpServiceRequest request2 = new HttpServiceRequest(null, HttpServer.Method.POST, null);

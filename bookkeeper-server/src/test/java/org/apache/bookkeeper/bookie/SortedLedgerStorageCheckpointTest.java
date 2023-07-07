@@ -139,6 +139,7 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
             mock(LedgerManager.class),
             ledgerDirsManager,
             ledgerDirsManager,
+            coldLedgerDirsManager,
             NullStatsLogger.INSTANCE,
             UnpooledByteBufAllocator.DEFAULT);
         this.storage.setCheckpointer(checkpointer);

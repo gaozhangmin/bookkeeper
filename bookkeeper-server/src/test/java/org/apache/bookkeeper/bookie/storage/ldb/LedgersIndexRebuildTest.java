@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
 import org.apache.bookkeeper.bookie.BookieImpl;
+import org.apache.bookkeeper.bookie.BookieResources;
 import org.apache.bookkeeper.bookie.BookieShell;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -111,7 +112,10 @@ public class LedgersIndexRebuildTest {
         ledgerStorage = new DbLedgerStorage();
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
-        ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(),
+                conf.getDiskUsageWarnThreshold()), NullStatsLogger.INSTANCE);
+        ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
                 NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
 
        for (long ledgerId = 0; ledgerId < ledgerCount; ledgerId++) {
@@ -129,6 +133,9 @@ public class LedgersIndexRebuildTest {
         conf.setLedgerStorageClass(DbLedgerStorage.class.getName());
         LedgerDirsManager ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
                 new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, new DiskChecker(conf.getDiskUsageThreshold(),
+                        conf.getDiskUsageWarnThreshold()), NullStatsLogger.INSTANCE);
 
         PowerMockito.whenNew(ServerConfiguration.class).withNoArguments().thenReturn(conf);
 
@@ -136,7 +143,7 @@ public class LedgersIndexRebuildTest {
                 .thenReturn(bookieAddress);
 
         DbLedgerStorage ledgerStorage = new DbLedgerStorage();
-        ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager,
+        ledgerStorage.initialize(conf, null, ledgerDirsManager, ledgerDirsManager, coldLedgerDirsManager,
                 NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
 
         return ledgerStorage;

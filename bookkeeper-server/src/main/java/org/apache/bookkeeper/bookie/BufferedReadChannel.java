@@ -43,6 +43,7 @@ public class BufferedReadChannel extends BufferedChannelBase  {
 
     long invocationCount = 0;
     long cacheHitCount = 0;
+//    long timestamp;
 
     public BufferedReadChannel(FileChannel fileChannel, int readCapacity) {
         super(fileChannel);
@@ -50,6 +51,13 @@ public class BufferedReadChannel extends BufferedChannelBase  {
         this.readBuffer = Unpooled.buffer(readCapacity);
     }
 
+//    public void setTimestamp(long timestamp) {
+//        this.timestamp = timestamp;
+//    }
+//
+//    public long getTimestamp() {
+//        return timestamp;
+//    }
     /**
      * Read as many bytes into dest as dest.capacity() starting at position pos in the
      * FileChannel. This function can read from the buffer or the file channel

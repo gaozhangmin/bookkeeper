@@ -83,6 +83,7 @@ import org.apache.bookkeeper.server.service.BookieService;
 import org.apache.bookkeeper.server.service.HttpService;
 import org.apache.bookkeeper.server.service.ScrubberService;
 import org.apache.bookkeeper.server.service.StatsProviderService;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.util.DiskChecker;
@@ -108,6 +109,7 @@ public class EmbeddedServer {
     private final DiskChecker diskChecker;
     private final LedgerDirsManager ledgerDirsManager;
     private final LedgerDirsManager indexDirsManager;
+    private final LedgerDirsManager coldLedgerDirsManager;
 
     private final BookieService bookieService;
     private final AutoRecoveryService autoRecoveryService;
@@ -117,9 +119,9 @@ public class EmbeddedServer {
     private EmbeddedServer(LifecycleComponentStack lifecycleComponentStack, StatsProvider statsProvider,
                            RegistrationManager registrationManager, LedgerManagerFactory ledgerManagerFactory,
                            DiskChecker diskChecker, LedgerDirsManager ledgerDirsManager,
-                           LedgerDirsManager indexDirsManager, BookieService bookieService,
-                           AutoRecoveryService autoRecoveryService, DataIntegrityService dataIntegrityService,
-                           HttpService httpService) {
+                           LedgerDirsManager indexDirsManager, LedgerDirsManager coldLedgerDirsManager,
+                           BookieService bookieService, AutoRecoveryService autoRecoveryService,
+                           DataIntegrityService dataIntegrityService, HttpService httpService) {
         this.lifecycleComponentStack = lifecycleComponentStack;
         this.statsProvider = statsProvider;
         this.registrationManager = registrationManager;
@@ -127,6 +129,7 @@ public class EmbeddedServer {
         this.diskChecker = diskChecker;
         this.ledgerDirsManager = ledgerDirsManager;
         this.indexDirsManager = indexDirsManager;
+        this.coldLedgerDirsManager = coldLedgerDirsManager;
         this.bookieService = bookieService;
         this.autoRecoveryService = autoRecoveryService;
         this.dataIntegrityService = dataIntegrityService;
@@ -159,6 +162,10 @@ public class EmbeddedServer {
 
     public LedgerDirsManager getIndexDirsManager() {
         return indexDirsManager;
+    }
+
+    public LedgerDirsManager getcoldLedgerDirsManager() {
+        return coldLedgerDirsManager;
     }
 
     public BookieService getBookieService() {
@@ -207,6 +214,7 @@ public class EmbeddedServer {
         private DiskChecker diskChecker;
         private LedgerDirsManager ledgerDirsManager;
         private LedgerDirsManager indexDirsManager;
+        private LedgerDirsManager coldLedgerDirsManager;
 
         private ByteBufAllocator allocator;
         private UncleanShutdownDetection uncleanShutdownDetection;
@@ -249,6 +257,11 @@ public class EmbeddedServer {
 
         public Builder indexDirsManager(LedgerDirsManager indexDirsManager) {
             this.indexDirsManager = indexDirsManager;
+            return this;
+        }
+
+        public Builder coldLedgerDirsManager(LedgerDirsManager coldLedgerDirsManager) {
+            this.coldLedgerDirsManager = coldLedgerDirsManager;
             return this;
         }
 
@@ -339,6 +352,11 @@ public class EmbeddedServer {
                         conf.getServerConf(), diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
             }
 
+            if (coldLedgerDirsManager == null) {
+                coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                        conf.getServerConf(), diskChecker, NullStatsLogger.INSTANCE);
+            }
+
             ByteBufAllocatorWithOomHandler allocatorWithOomHandler;
             if (allocator == null) {
                 allocatorWithOomHandler = BookieResources.createAllocator(conf.getServerConf());
@@ -382,7 +400,7 @@ public class EmbeddedServer {
                                 rxScheduler, rxExecutor));
 
                 storage = BookieResources.createLedgerStorage(conf.getServerConf(), ledgerManager,
-                        ledgerDirsManager, indexDirsManager, bookieStats, allocator);
+                        ledgerDirsManager, indexDirsManager, coldLedgerDirsManager, bookieStats, allocator);
 
                 EntryCopier copier = new EntryCopierImpl(bookieId,
                         ((org.apache.bookkeeper.client.BookKeeper) bkc).getClientCtx().getBookieClient(),
@@ -408,7 +426,7 @@ public class EmbeddedServer {
                 cookieValidation.checkCookies(storageDirectoriesFromConf(conf.getServerConf()));
                 // storage should be created after legacy validation or it will fail (it would find ledger dirs)
                 storage = BookieResources.createLedgerStorage(conf.getServerConf(), ledgerManager,
-                        ledgerDirsManager, indexDirsManager, bookieStats, allocator);
+                        ledgerDirsManager, indexDirsManager, coldLedgerDirsManager, bookieStats, allocator);
             }
 
             Bookie bookie;
@@ -416,13 +434,13 @@ public class EmbeddedServer {
                 bookie = new ReadOnlyBookie(conf.getServerConf(), registrationManager, storage,
                         diskChecker,
                         ledgerDirsManager, indexDirsManager,
-                        bookieStats, allocator,
+                        coldLedgerDirsManager, bookieStats, allocator,
                         bookieServiceInfoProvider);
             } else {
                 bookie = new BookieImpl(conf.getServerConf(), registrationManager, storage,
                         diskChecker,
                         ledgerDirsManager, indexDirsManager,
-                        bookieStats, allocator,
+                        coldLedgerDirsManager, bookieStats, allocator,
                         bookieServiceInfoProvider);
             }
 
@@ -496,7 +514,7 @@ public class EmbeddedServer {
             }
 
             return new EmbeddedServer(serverBuilder.build(), statsProvider, registrationManager, ledgerManagerFactory,
-                    diskChecker, ledgerDirsManager, indexDirsManager, bookieService, autoRecoveryService,
+                    diskChecker, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager, bookieService, autoRecoveryService,
                     dataIntegrityService, httpService);
 
         }

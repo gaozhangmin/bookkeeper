@@ -54,6 +54,8 @@ public class BookieInfoService implements HttpEndpointService {
     public static class BookieInfo {
         private long freeSpace;
         private long totalSpace;
+        private long freeColdDiskSpace;
+        private long totalColdDiskSpace;
     }
 
     @Override
@@ -66,7 +68,8 @@ public class BookieInfoService implements HttpEndpointService {
             return response;
         }
 
-        BookieInfo bi = new BookieInfo(bookie.getTotalFreeSpace(), bookie.getTotalDiskSpace());
+        BookieInfo bi = new BookieInfo(bookie.getTotalFreeSpace(), bookie.getTotalDiskSpace(),
+                bookie.getTotalFreeColdSpace(), bookie.getTotalColdDiskSpace());
 
         String jsonResponse = JsonUtil.toJson(bi);
         response.setBody(jsonResponse);

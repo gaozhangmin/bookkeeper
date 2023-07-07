@@ -20,8 +20,7 @@
  */
 package org.apache.bookkeeper.bookie;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
@@ -35,13 +34,18 @@ import static org.powermock.api.mockito.PowerMockito.whenNew;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import io.netty.util.Recycler;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.bookie.Journal.ForceWriteRequest;
 import org.apache.bookkeeper.bookie.Journal.LastLogMark;
 import org.apache.bookkeeper.bookie.stats.JournalStats;
 import org.apache.bookkeeper.common.collections.BatchedArrayBlockingQueue;
+import org.apache.bookkeeper.common.collections.RecyclableArrayList;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.net.BookieId;
@@ -400,6 +404,72 @@ public class BookieJournalForceTest {
         verify(defaultFileChannel, times (1)).fileExists(bookieFileDirectory);
         provider.close(bookieFileChannel);
         verify(defaultFileChannel, times (1)).close();
+    }
+
+    @Test
+    public void testRecycleFlushedFlag() throws Exception {
+        File journalDir = tempDir.newFolder();
+        BookieImpl.checkDirectoryStructure(BookieImpl.getCurrentDirectory(journalDir));
+
+        final int journalBufferedEntriesThreshold = 10;
+
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        conf.setJournalDirName(journalDir.getPath())
+                .setJournalBufferedEntriesThreshold(journalBufferedEntriesThreshold)
+                .setMetadataServiceUri(null)
+                .setJournalAdaptiveGroupWrites(false);
+
+        JournalChannel jc = spy(new JournalChannel(journalDir, 1));
+        whenNew(JournalChannel.class).withAnyArguments().thenReturn(jc);
+
+        LedgerDirsManager ledgerDirsManager = mock(LedgerDirsManager.class);
+        Journal journal = new Journal(0, journalDir, conf, ledgerDirsManager);
+
+        // Create a sample ForceWriteRequest object
+        long logId = 1L;
+        long lastFlushedPosition = 100L;
+        RecyclableArrayList<Journal.QueueEntry> forceWriteWaiters = new RecyclableArrayList<>();
+        boolean shouldClose = false;
+
+
+        Method createForceWriteRequest = Journal.class.getDeclaredMethod("createForceWriteRequest",
+                JournalChannel.class, long.class, long.class, RecyclableArrayList.class, boolean.class);
+        createForceWriteRequest.setAccessible(true);
+        ForceWriteRequest request = (ForceWriteRequest) createForceWriteRequest.invoke(journal, jc, logId,
+                lastFlushedPosition, forceWriteWaiters, shouldClose);
+
+        Method recycle = ForceWriteRequest.class.getDeclaredMethod("recycle");
+        recycle.setAccessible(true);
+        recycle.invoke(request);
+
+
+        request = (ForceWriteRequest) createForceWriteRequest.invoke(journal, jc, logId,
+                200L, forceWriteWaiters, true);
+        Class<?> forceWriteRequestClass = request.getClass();
+
+        Field field = forceWriteRequestClass.getDeclaredField("logFile");
+        field.setAccessible(true);
+        assertEquals(jc, field.get(request));
+
+        field = forceWriteRequestClass.getDeclaredField("logId");
+        field.setAccessible(true);
+        assertEquals(logId, field.get(request));
+
+        field = forceWriteRequestClass.getDeclaredField("lastFlushedPosition");
+        field.setAccessible(true);
+        assertEquals(200L, field.get(request));
+
+        field = forceWriteRequestClass.getDeclaredField("forceWriteWaiters");
+        field.setAccessible(true);
+        assertEquals(forceWriteWaiters, field.get(request));
+
+        field = forceWriteRequestClass.getDeclaredField("shouldClose");
+        field.setAccessible(true);
+        assertTrue((boolean) field.get(request));
+
+        field = forceWriteRequestClass.getDeclaredField("flushed");
+        field.setAccessible(true);
+        assertFalse((boolean) field.get(request));
     }
 
 }

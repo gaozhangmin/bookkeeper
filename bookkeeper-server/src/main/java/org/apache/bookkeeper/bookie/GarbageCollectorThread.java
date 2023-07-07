@@ -60,9 +60,9 @@ public class GarbageCollectorThread implements Runnable {
     private static final int SECOND = 1000;
 
     // Maps entry log files to the set of ledgers that comprise the file and the size usage per ledger
-    private EntryLogMetadataMap entryLogMetaMap;
+    EntryLogMetadataMap entryLogMetaMap;
 
-    private final ScheduledExecutorService gcExecutor;
+    final ScheduledExecutorService gcExecutor;
     Future<?> scheduledFuture = null;
 
     // This is how often we want to run the Garbage Collector Thread (in milliseconds).
@@ -91,7 +91,7 @@ public class GarbageCollectorThread implements Runnable {
     final AbstractLogCompactor compactor;
 
     // Stats loggers for garbage collection operations
-    private final GarbageCollectorStats gcStats;
+    public final GarbageCollectorStats gcStats;
 
     private volatile long totalEntryLogSize;
     private volatile int numActiveEntryLogs;
@@ -179,6 +179,7 @@ public class GarbageCollectorThread implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("delete ledger : " + ledgerId);
                 }
+                LOG.info("delete ledger : " + ledgerId);
                 gcStats.getDeletedLedgerCounter().inc();
                 ledgerStorage.deleteLedger(ledgerId);
             } catch (IOException e) {
@@ -401,6 +402,7 @@ public class GarbageCollectorThread implements Runnable {
     }
 
     public void runWithFlags(boolean force, boolean suspendMajor, boolean suspendMinor) {
+        LOG.info("Garbage collector thread running.");
         long threadStart = MathUtils.nowInNano();
         if (force) {
             LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
@@ -415,7 +417,10 @@ public class GarbageCollectorThread implements Runnable {
 
             // Extract all of the ledger ID's that comprise all of the entry logs
             // (except for the current new one which is still being written to).
+            long startTime = System.currentTimeMillis();
             extractMetaFromEntryLogs();
+            LOG.info("GarbageCollectorThread Extracted metadata from entry logs in {} s",
+                    (System.currentTimeMillis() - startTime)/100);
 
             // gc entry logs
             doGcEntryLogs();
@@ -476,18 +481,18 @@ public class GarbageCollectorThread implements Runnable {
     /**
      * Do garbage collection ledger index files.
      */
-    private void doGcLedgers() {
+    protected void doGcLedgers() {
         garbageCollector.gc(garbageCleaner);
     }
 
     /**
      * Garbage collect those entry loggers which are not associated with any active ledgers.
      */
-    private void doGcEntryLogs() throws EntryLogMetadataMapException {
+    protected void doGcEntryLogs() throws EntryLogMetadataMapException {
         // Get a cumulative count, don't update until complete
         AtomicLong totalEntryLogSizeAcc = new AtomicLong(0L);
 
-        // Loop through all of the entry logs and remove the non-active ledgers.
+        // Loop through all the entry logs and remove the non-active ledgers.
         entryLogMetaMap.forEach((entryLogId, meta) -> {
             try {
                 boolean modified = removeIfLedgerNotExists(meta);
@@ -515,7 +520,7 @@ public class GarbageCollectorThread implements Runnable {
         this.numActiveEntryLogs = entryLogMetaMap.size();
     }
 
-    private boolean removeIfLedgerNotExists(EntryLogMetadata meta) throws EntryLogMetadataMapException {
+    public boolean removeIfLedgerNotExists(EntryLogMetadata meta) throws EntryLogMetadataMapException {
         MutableBoolean modified = new MutableBoolean(false);
         meta.removeLedgerIf((entryLogLedger) -> {
             // Remove the entry log ledger from the set if it isn't active.

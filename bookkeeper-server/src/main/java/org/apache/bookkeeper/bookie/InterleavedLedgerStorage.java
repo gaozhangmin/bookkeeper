@@ -22,14 +22,8 @@
 package org.apache.bookkeeper.bookie;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_READ_ENTRY;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.CATEGORY_SERVER;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.ENTRYLOGGER_SCOPE;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.STORAGE_GET_ENTRY;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.STORAGE_GET_OFFSET;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.STORAGE_SCRUB_PAGES_SCANNED;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.STORAGE_SCRUB_PAGE_RETRIES;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.logIdForOffset;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.RateLimiter;
@@ -85,8 +79,11 @@ import org.slf4j.LoggerFactory;
 )
 public class InterleavedLedgerStorage implements CompactableLedgerStorage, EntryLogListener {
     private static final Logger LOG = LoggerFactory.getLogger(InterleavedLedgerStorage.class);
+    private static final String DISK_CACHE_HITS = "disk-cache-hits";
+    private static final String DISK_CACHE_MISSES = "disk-cache-misses";
 
     DefaultEntryLogger entryLogger;
+    DefaultEntryLogger coldEntryLogger;
     @Getter
     LedgerCache ledgerCache;
     protected CheckpointSource checkpointSource = CheckpointSource.DEFAULT;
@@ -101,6 +98,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
     GarbageCollectorThread gcThread;
+    ColdStorageArchiveThread coldStorageBackupThread = null;
 
     // this indicates that a write has happened since the last flush
     private final AtomicBoolean somethingWritten = new AtomicBoolean(false);
@@ -119,8 +117,28 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
         happensAfter = STORAGE_GET_OFFSET
     )
     private OpStatsLogger getEntryStats;
+    @StatsDoc(
+            name = COLD_STORAGE_GET_ENTRY,
+            help = "Operation stats of getting entry from cold entry logger",
+            parent = BOOKIE_READ_ENTRY,
+            happensAfter = STORAGE_GET_OFFSET
+    )
+    private OpStatsLogger getColdEntryStats;
     private OpStatsLogger pageScanStats;
     private Counter retryCounter;
+    @StatsDoc(
+            name = DISK_CACHE_HITS,
+            help = "number of disk cache hits (on reads)",
+            parent = BOOKIE_READ_ENTRY
+    )
+    private Counter diskCacheHitCounter;
+    @StatsDoc(
+            name = DISK_CACHE_MISSES,
+            help = "number of disk cache misses (on reads)",
+            parent = BOOKIE_READ_ENTRY
+    )
+    private Counter diskCacheMissCounter;
+    protected LedgerDirsManager ledgerDirsManager;
 
     public InterleavedLedgerStorage() {
         activeLedgers = new SnapshotMap<>();
@@ -131,6 +149,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
                            LedgerManager ledgerManager,
                            LedgerDirsManager ledgerDirsManager,
                            LedgerDirsManager indexDirsManager,
+                           LedgerDirsManager coldLedgerDirsManager,
                            StatsLogger statsLogger,
                            ByteBufAllocator allocator)
             throws IOException {
@@ -139,6 +158,7 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
             ledgerManager,
             ledgerDirsManager,
             indexDirsManager,
+            coldLedgerDirsManager,
             this,
             statsLogger,
             allocator);
@@ -148,17 +168,25 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
                                         LedgerManager ledgerManager,
                                         LedgerDirsManager ledgerDirsManager,
                                         LedgerDirsManager indexDirsManager,
+                                        LedgerDirsManager coldLedgerDirsManager,
                                         EntryLogListener entryLogListener,
                                         StatsLogger statsLogger,
                                         ByteBufAllocator allocator) throws IOException {
+        EntryLogger coldEntrylogger = null;
+        if (coldLedgerDirsManager != null) {
+            coldEntrylogger = new DefaultEntryLogger(conf, coldLedgerDirsManager, entryLogListener,
+                    statsLogger.scope(ENTRYLOGGER_SCOPE), allocator);
+        }
         initializeWithEntryLogger(
                 conf,
                 ledgerManager,
                 ledgerDirsManager,
                 indexDirsManager,
+                coldLedgerDirsManager,
                 new DefaultEntryLogger(conf, ledgerDirsManager, entryLogListener, statsLogger.scope(ENTRYLOGGER_SCOPE),
                         allocator),
-                statsLogger);
+                coldEntrylogger,
+                statsLogger, allocator);
     }
 
     @Override
@@ -178,22 +206,40 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
                 LedgerManager ledgerManager,
                 LedgerDirsManager ledgerDirsManager,
                 LedgerDirsManager indexDirsManager,
+                LedgerDirsManager coldLedgerDirsManager,
+                EntryLogger coldEntrylogger,
                 EntryLogger entryLogger,
-                StatsLogger statsLogger) throws IOException {
+                StatsLogger statsLogger, ByteBufAllocator allocator) throws IOException {
         checkNotNull(checkpointSource, "invalid null checkpoint source");
         checkNotNull(checkpointer, "invalid null checkpointer");
         this.entryLogger = (DefaultEntryLogger) entryLogger;
         this.entryLogger.addListener(this);
+        this.coldEntryLogger = (DefaultEntryLogger)  coldEntrylogger;
+        this.ledgerDirsManager = ledgerDirsManager;
+
         ledgerCache = new LedgerCacheImpl(conf, activeLedgers,
                 null == indexDirsManager ? ledgerDirsManager : indexDirsManager, statsLogger);
-        gcThread = new GarbageCollectorThread(conf, ledgerManager, ledgerDirsManager,
-                                              this, entryLogger, statsLogger.scope("gc"));
-        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        if (coldEntrylogger != null) {
+            this.coldEntryLogger.addListener(this);
+            coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager,
+                    ledgerDirsManager, coldLedgerDirsManager, this, entryLogger, coldEntryLogger,
+                    statsLogger.scope("gc"), allocator);
+            gcThread = new GarbageCollectorThread(conf, ledgerManager, coldLedgerDirsManager,
+                    this, coldEntrylogger, statsLogger.scope("gc"));
+            coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        } else {
+            gcThread = new GarbageCollectorThread(conf, ledgerManager, ledgerDirsManager,
+                    this, entryLogger, statsLogger.scope("gc"));
+            ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        }
         // Expose Stats
         getOffsetStats = statsLogger.getOpStatsLogger(STORAGE_GET_OFFSET);
         getEntryStats = statsLogger.getOpStatsLogger(STORAGE_GET_ENTRY);
+        getColdEntryStats = statsLogger.getOpStatsLogger(COLD_STORAGE_GET_ENTRY);
         pageScanStats = statsLogger.getOpStatsLogger(STORAGE_SCRUB_PAGES_SCANNED);
         retryCounter = statsLogger.getCounter(STORAGE_SCRUB_PAGE_RETRIES);
+        diskCacheHitCounter = statsLogger.getCounter(DISK_CACHE_MISSES);
+        diskCacheMissCounter = statsLogger.getCounter(DISK_CACHE_MISSES);
     }
 
     private LedgerDirsListener getLedgerDirsListener() {
@@ -201,21 +247,37 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
 
             @Override
             public void diskAlmostFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                    }
+                }
+            }
+
+            @Override
+            public void diskUnderWarnThreshold(File disk) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.disableForceGC();
+                    } else {
+                        gcThread.resumeMajorGC();
+                    }
                 }
             }
 
             @Override
             public void diskFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
-                    gcThread.suspendMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                        gcThread.suspendMinorGC();
+                    }
                 }
+
             }
 
             @Override
@@ -230,25 +292,30 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
 
             @Override
             public void diskWritable(File disk) {
-                // we have enough space now
-                if (gcThread.isForceGCAllowWhenNoSpace) {
-                    // disable force gc.
-                    gcThread.disableForceGC();
-                } else {
-                    // resume compaction to normal.
-                    gcThread.resumeMajorGC();
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    // we have enough space now
+                    if (gcThread.isForceGCAllowWhenNoSpace) {
+                        // disable force gc.
+                        gcThread.disableForceGC();
+                    } else {
+                        // resume compaction to normal.
+                        gcThread.resumeMajorGC();
+                        gcThread.resumeMinorGC();
+                    }
                 }
+
             }
 
             @Override
             public void diskJustWritable(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace) {
-                    // if a disk is just writable, we still need force gc.
-                    gcThread.enableForceGC();
-                } else {
-                    // still under warn threshold, only resume minor compaction.
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace) {
+                        // if a disk is just writable, we still need force gc.
+                        gcThread.enableForceGC();
+                    } else {
+                        // still under warn threshold, only resume minor compaction.
+                        gcThread.resumeMinorGC();
+                    }
                 }
             }
         };
@@ -307,6 +374,10 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
         gcThread.shutdown();
         LOG.info("Shutting down entry logger");
         entryLogger.close();
+        if (coldStorageBackupThread != null) {
+            coldStorageBackupThread.shutdown();
+            coldEntryLogger.close();
+        }
         try {
             ledgerCache.close();
         } catch (IOException e) {
@@ -433,17 +504,39 @@ public class InterleavedLedgerStorage implements CompactableLedgerStorage, Entry
         // Get Entry
         startTimeNanos = MathUtils.nowInNano();
         success = false;
-        try {
-            ByteBuf retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
-            success = true;
-            return retBytes;
-        } finally {
-            if (success) {
-                getEntryStats.registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
-            } else {
-                getEntryStats.registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+        ByteBuf retBytes;
+        long entryLogId = logIdForOffset(offset);
+        if (coldEntryLogger != null && entryLogger.isArchivedEntryLog(entryLogId)) {
+            try {
+                retBytes = coldEntryLogger.readEntry(ledgerId, entryId, offset);
+                success = true;
+                return retBytes;
+            } finally {
+                if (success) {
+                    diskCacheMissCounter.inc();
+                    getColdEntryStats.registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                } else {
+                    getColdEntryStats.registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                }
+
+
+            }
+        } else {
+            try {
+                retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
+                success = true;
+                return retBytes;
+            } finally {
+                if (success) {
+                    diskCacheHitCounter.inc();
+                    getEntryStats.registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                } else {
+                    getEntryStats.registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                }
+
             }
         }
+
     }
 
     private void flushOrCheckpoint(boolean isCheckpointFlush)

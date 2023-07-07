@@ -49,11 +49,11 @@ public class ReadOnlyBookie extends BookieImpl {
                           DiskChecker diskChecker,
                           LedgerDirsManager ledgerDirsManager,
                           LedgerDirsManager indexDirsManager,
-                          StatsLogger statsLogger,
+                          LedgerDirsManager coldLedgerDirsManager, StatsLogger statsLogger,
                           ByteBufAllocator allocator, Supplier<BookieServiceInfo> bookieServiceInfoProvider)
             throws IOException, KeeperException, InterruptedException, BookieException {
         super(conf, registrationManager, storage, diskChecker,
-              ledgerDirsManager, indexDirsManager, statsLogger, allocator, bookieServiceInfoProvider);
+              ledgerDirsManager, indexDirsManager, coldLedgerDirsManager, statsLogger, allocator, bookieServiceInfoProvider);
         if (conf.isReadOnlyModeEnabled()) {
             stateManager.forceToReadOnly();
         } else {

@@ -93,10 +93,22 @@ public class BookieResources {
         }
     }
 
+    public static LedgerDirsManager createColdLedgerDirsManager(ServerConfiguration conf, DiskChecker diskChecker,
+                                                                StatsLogger statsLogger)
+            throws IOException {
+        File[] coldLedgerDirs = conf.getColdLedgerDirs();
+        if (null == coldLedgerDirs) {
+            return null;
+        } else {
+            return new LedgerDirsManager(conf, coldLedgerDirs, diskChecker, statsLogger);
+        }
+    }
+
     public static LedgerStorage createLedgerStorage(ServerConfiguration conf,
                                                     LedgerManager ledgerManager,
                                                     LedgerDirsManager ledgerDirsManager,
                                                     LedgerDirsManager indexDirsManager,
+                                                    LedgerDirsManager coldLedgerDirsManager,
                                                     StatsLogger statsLogger,
                                                     ByteBufAllocator allocator) throws IOException {
         // Instantiate the ledger storage implementation
@@ -104,7 +116,8 @@ public class BookieResources {
         log.info("Using ledger storage: {}", ledgerStorageClass);
         LedgerStorage storage = LedgerStorageFactory.createLedgerStorage(ledgerStorageClass);
 
-        storage.initialize(conf, ledgerManager, ledgerDirsManager, indexDirsManager, statsLogger, allocator);
+        storage.initialize(conf, ledgerManager, ledgerDirsManager,
+                indexDirsManager, coldLedgerDirsManager, statsLogger, allocator);
         storage.setCheckpointSource(CheckpointSource.DEFAULT);
         return storage;
     }

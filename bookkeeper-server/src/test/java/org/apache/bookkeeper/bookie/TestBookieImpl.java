@@ -53,7 +53,7 @@ public class TestBookieImpl extends BookieImpl {
                 resources.diskChecker,
                 resources.ledgerDirsManager,
                 resources.indexDirsManager,
-                statsLogger,
+                resources.coldLedgerDirsManager, statsLogger,
                 UnpooledByteBufAllocator.DEFAULT,
                 new SimpleBookieServiceInfoProvider(resources.conf));
         this.resources = resources;
@@ -66,7 +66,7 @@ public class TestBookieImpl extends BookieImpl {
                 resources.diskChecker,
                 resources.ledgerDirsManager,
                 resources.indexDirsManager,
-                NullStatsLogger.INSTANCE,
+                resources.coldLedgerDirsManager, NullStatsLogger.INSTANCE,
                 UnpooledByteBufAllocator.DEFAULT,
                 new SimpleBookieServiceInfoProvider(resources.conf));
         this.resources = resources;
@@ -79,7 +79,7 @@ public class TestBookieImpl extends BookieImpl {
                 resources.diskChecker,
                 resources.ledgerDirsManager,
                 resources.indexDirsManager,
-                NullStatsLogger.INSTANCE,
+                resources.coldLedgerDirsManager, NullStatsLogger.INSTANCE,
                 UnpooledByteBufAllocator.DEFAULT,
                 new SimpleBookieServiceInfoProvider(resources.conf));
     }
@@ -109,6 +109,8 @@ public class TestBookieImpl extends BookieImpl {
         private final LedgerDirsManager ledgerDirsManager;
         private final LedgerDirsManager indexDirsManager;
 
+        private final LedgerDirsManager coldLedgerDirsManager;
+
         Resources(ServerConfiguration conf,
                   MetadataBookieDriver metadataDriver,
                   RegistrationManager registrationManager,
@@ -117,7 +119,8 @@ public class TestBookieImpl extends BookieImpl {
                   LedgerStorage storage,
                   DiskChecker diskChecker,
                   LedgerDirsManager ledgerDirsManager,
-                  LedgerDirsManager indexDirsManager) {
+                  LedgerDirsManager indexDirsManager,
+                  LedgerDirsManager coldLedgerDirsManager) {
             this.conf = conf;
             this.metadataDriver = metadataDriver;
             this.registrationManager = registrationManager;
@@ -127,6 +130,7 @@ public class TestBookieImpl extends BookieImpl {
             this.diskChecker = diskChecker;
             this.ledgerDirsManager = ledgerDirsManager;
             this.indexDirsManager = indexDirsManager;
+            this.coldLedgerDirsManager = coldLedgerDirsManager;
         }
 
         void cleanup() {
@@ -194,9 +198,11 @@ public class TestBookieImpl extends BookieImpl {
                     conf, diskChecker, statsLogger);
             LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                     conf, diskChecker, statsLogger, ledgerDirsManager);
+            LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                    conf, diskChecker, NullStatsLogger.INSTANCE);
 
             LedgerStorage storage = BookieResources.createLedgerStorage(
-                    conf, ledgerManager, ledgerDirsManager, indexDirsManager,
+                    conf, ledgerManager, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
                     statsLogger, UnpooledByteBufAllocator.DEFAULT);
 
             return new Resources(conf,
@@ -207,7 +213,7 @@ public class TestBookieImpl extends BookieImpl {
                                  storage,
                                  diskChecker,
                                  ledgerDirsManager,
-                                 indexDirsManager);
+                                 indexDirsManager, coldLedgerDirsManager);
         }
     }
 }

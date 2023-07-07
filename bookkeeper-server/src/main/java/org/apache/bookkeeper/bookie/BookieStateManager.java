@@ -172,18 +172,18 @@ public class BookieStateManager implements StateManager {
             }
         };
         statsLogger.registerGauge(SERVER_SANITY, serverSanityGauge);
-        stateService.scheduleAtFixedRate(() -> {
-            if (isReadOnly()) {
-                sanityPassed.set(1);
-                return;
-            }
-            SanityTestCommand.handleAsync(conf, new SanityTestCommand.SanityFlags()).thenAccept(__ -> {
-                sanityPassed.set(1);
-            }).exceptionally(ex -> {
-                sanityPassed.set(0);
-                return null;
-            });
-        }, 60, 60, TimeUnit.SECONDS);
+//        stateService.scheduleAtFixedRate(() -> {
+//            if (isReadOnly()) {
+//                sanityPassed.set(1);
+//                return;
+//            }
+//            SanityTestCommand.handleAsync(conf, new SanityTestCommand.SanityFlags()).thenAccept(__ -> {
+//                sanityPassed.set(1);
+//            }).exceptionally(ex -> {
+//                sanityPassed.set(0);
+//                return null;
+//            });
+//        }, 60, 60, TimeUnit.SECONDS);
     }
 
     private boolean isRegistrationManagerDisabled() {

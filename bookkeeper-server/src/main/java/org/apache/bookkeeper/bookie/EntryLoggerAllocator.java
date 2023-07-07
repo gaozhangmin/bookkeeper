@@ -50,6 +50,7 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
  * An allocator pre-allocates entry log files.
  */
 @Slf4j
+public
 class EntryLoggerAllocator {
 
     private long preallocatedLogId;

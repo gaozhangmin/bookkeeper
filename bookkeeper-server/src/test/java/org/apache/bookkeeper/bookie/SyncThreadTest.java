@@ -274,6 +274,7 @@ public class SyncThreadTest {
             LedgerManager ledgerManager,
             LedgerDirsManager ledgerDirsManager,
             LedgerDirsManager indexDirsManager,
+            LedgerDirsManager coldLedgerDirsManager,
             StatsLogger statsLogger,
             ByteBufAllocator allocator)
                 throws IOException {

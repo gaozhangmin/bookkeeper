@@ -25,7 +25,9 @@ import java.io.IOException;
 import java.util.Collection;
 import org.apache.bookkeeper.bookie.AbstractLogCompactor;
 import org.apache.bookkeeper.bookie.Bookie.NoEntryException;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger;
 import org.apache.bookkeeper.bookie.EntryLogMetadata;
+import org.apache.bookkeeper.bookie.EntryLoggerAllocator;
 
 
 /**
@@ -95,6 +97,16 @@ public interface EntryLogger extends AutoCloseable {
      * collection.
      */
     Collection<Long> getFlushedLogIds();
+
+    void flushColdEntrylogger(long logId);
+
+    void archivedEntryLog(long logId);
+
+    void archivedLogIds();
+
+    long getMaxArchivedLogId();
+
+    boolean isArchivedEntryLog(long entryLogId);
 
     /**
      * Scan the given entrylog, returning all entries contained therein.

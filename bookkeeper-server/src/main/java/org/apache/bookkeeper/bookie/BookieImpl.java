@@ -62,6 +62,7 @@ import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.bookie.stats.BookieStats;
 import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorage;
+import org.apache.bookkeeper.bookie.storage.ldb.DirectDbLedgerStorage;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.discover.BookieServiceInfo;
@@ -108,6 +109,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
     static final long METAENTRY_ID_LEDGER_EXPLICITLAC  = -0x8000;
 
     private final LedgerDirsManager ledgerDirsManager;
+    private final LedgerDirsManager coldLedgerDirsManager;
     protected final Supplier<BookieServiceInfo> bookieServiceInfoProvider;
     private final LedgerDirsManager indexDirsManager;
     LedgerDirsMonitor dirsMonitor;
@@ -181,6 +183,9 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         if (indexDirsManager != ledgerDirsManager) {
             allLedgerDirs.addAll(indexDirsManager.getAllLedgerDirs());
         }
+        if (coldLedgerDirsManager != null) {
+            allLedgerDirs.addAll(coldLedgerDirsManager.getAllLedgerDirs());
+        }
 
         for (File journalDirectory : journalDirectories) {
             checkDirectoryStructure(journalDirectory);
@@ -213,7 +218,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
             try {
                 fileStore = Files.getFileStore(dir.toPath());
             } catch (IOException e) {
-                LOG.error("Got IOException while trying to FileStore of {}", dir);
+                LOG.error("Got IOException while trying to FileStore of  {}", dir);
                 throw new BookieException.DiskPartitionDuplicationException(e);
             }
             if (fileStoreDirsMap.containsKey(fileStore)) {
@@ -304,6 +309,10 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         return ledgerDirsManager;
     }
 
+    public LedgerDirsManager getColdLedgerDirsManager() {
+        return coldLedgerDirsManager;
+    }
+
     LedgerDirsManager getIndexDirsManager() {
         return indexDirsManager;
     }
@@ -312,8 +321,24 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         return getLedgerDirsManager().getTotalDiskSpace(ledgerDirsManager.getAllLedgerDirs());
     }
 
+    public long getTotalColdDiskSpace() throws IOException {
+        long totalColdDiskSpace = 0;
+        if (coldLedgerDirsManager != null) {
+            totalColdDiskSpace =  getColdLedgerDirsManager().getTotalDiskSpace(coldLedgerDirsManager.getAllLedgerDirs());
+        }
+        return totalColdDiskSpace;
+    }
+
     public long getTotalFreeSpace() throws IOException {
         return getLedgerDirsManager().getTotalFreeSpace(ledgerDirsManager.getAllLedgerDirs());
+    }
+
+    public long getTotalFreeColdSpace() throws IOException {
+        long totalColdFreeSpace = 0;
+        if (coldLedgerDirsManager != null) {
+            totalColdFreeSpace =  getColdLedgerDirsManager().getTotalFreeSpace(coldLedgerDirsManager.getAllLedgerDirs());
+        }
+        return totalColdFreeSpace;
     }
 
     public static File getCurrentDirectory(File dir) {
@@ -348,11 +373,14 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 conf, diskChecker, statsLogger.scope(LD_LEDGER_SCOPE));
         LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                 conf, diskChecker, statsLogger.scope(LD_INDEX_SCOPE), ledgerDirsManager);
+        LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                conf, diskChecker, NullStatsLogger.INSTANCE);
 
         if (null == ledgerStorage) {
             ledgerStorage = BookieResources.createLedgerStorage(conf, null,
                                                                 ledgerDirsManager,
                                                                 indexDirsManager,
+                                                                coldLedgerDirsManager,
                                                                 statsLogger,
                                                                 UnpooledByteBufAllocator.DEFAULT);
         } else {
@@ -361,6 +389,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 null,
                 ledgerDirsManager,
                 indexDirsManager,
+                coldLedgerDirsManager,
                 statsLogger,
                 UnpooledByteBufAllocator.DEFAULT);
         }
@@ -386,7 +415,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                       DiskChecker diskChecker,
                       LedgerDirsManager ledgerDirsManager,
                       LedgerDirsManager indexDirsManager,
-                      StatsLogger statsLogger,
+                      LedgerDirsManager coldLedgerDirsManager, StatsLogger statsLogger,
                       ByteBufAllocator allocator,
                       Supplier<BookieServiceInfo> bookieServiceInfoProvider)
             throws IOException, InterruptedException, BookieException {
@@ -400,6 +429,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         }
         this.ledgerDirsManager = ledgerDirsManager;
         this.indexDirsManager = indexDirsManager;
+        this.coldLedgerDirsManager = coldLedgerDirsManager;
         this.writeDataToJournal = conf.getJournalWriteData();
         this.allocator = allocator;
         this.registrationManager = registrationManager;
@@ -416,6 +446,9 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         if (indexDirsManager != ledgerDirsManager) {
             dirsManagers.add(indexDirsManager);
         }
+        if (coldLedgerDirsManager != null) {
+            dirsManagers.add(coldLedgerDirsManager);
+        }
         this.dirsMonitor = new LedgerDirsMonitor(conf, diskChecker, dirsManagers);
         try {
             this.dirsMonitor.init();
@@ -427,56 +460,62 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 this.stateManager.transitionToReadOnlyMode();
             }
         }
-
+        this.ledgerStorage = storage;
+        this.entryLogPerLedgerEnabled = conf.isEntryLogPerLedgerEnabled();
+        boolean isDirectDbLedgerStorage = storage instanceof DirectDbLedgerStorage;
         JournalAliveListener journalAliveListener =
                 () -> BookieImpl.this.triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+
         // instantiate the journals
         journals = Lists.newArrayList();
         for (int i = 0; i < journalDirectories.size(); i++) {
             journals.add(new Journal(i, journalDirectories.get(i),
                     conf, ledgerDirsManager, statsLogger.scope(JOURNAL_SCOPE), allocator, journalAliveListener));
         }
+        if (!isDirectDbLedgerStorage) {
+            CheckpointSource checkpointSource = new CheckpointSourceList(journals);
+            boolean isDbLedgerStorage = ledgerStorage instanceof DbLedgerStorage;
+            /*
+             * with this change https://github.com/apache/bookkeeper/pull/677,
+             * LedgerStorage drives the checkpoint logic.
+             *
+             * <p>There are two exceptions:
+             *
+             * 1) with multiple entry logs, checkpoint logic based on a entry log is
+             *    not possible, hence it needs to be timebased recurring thing and
+             *    it is driven by SyncThread. SyncThread.start does that and it is
+             *    started in Bookie.start method.
+             *
+             * 2) DbLedgerStorage
+             */
+            if (entryLogPerLedgerEnabled || isDbLedgerStorage) {
+                syncThread = new SyncThread(conf, getLedgerDirsListener(), ledgerStorage, checkpointSource, statsLogger) {
+                    @Override
+                    public void startCheckpoint(Checkpoint checkpoint) {
+                        /*
+                         * in the case of entryLogPerLedgerEnabled, LedgerStorage
+                         * dont drive checkpoint logic, but instead it is done
+                         * periodically by SyncThread. So startCheckpoint which
+                         * will be called by LedgerStorage will be no-op.
+                         */
+                    }
 
-        this.entryLogPerLedgerEnabled = conf.isEntryLogPerLedgerEnabled();
-        CheckpointSource checkpointSource = new CheckpointSourceList(journals);
+                    @Override
+                    public void start() {
+                        executor.scheduleAtFixedRate(() -> {
+                            doCheckpoint(checkpointSource.newCheckpoint());
+                        }, conf.getFlushInterval(), conf.getFlushInterval(), TimeUnit.MILLISECONDS);
+                    }
+                };
+            } else {
+                syncThread = new SyncThread(conf, getLedgerDirsListener(), ledgerStorage, checkpointSource, statsLogger);
+            }
+            ledgerStorage.setStateManager(stateManager);
+            ledgerStorage.setCheckpointSource(checkpointSource);
+            ledgerStorage.setCheckpointer(syncThread);
 
-        this.ledgerStorage = storage;
-        boolean isDbLedgerStorage = ledgerStorage instanceof DbLedgerStorage;
-
-        /*
-         * with this change https://github.com/apache/bookkeeper/pull/677,
-         * LedgerStorage drives the checkpoint logic.
-         *
-         * <p>There are two exceptions:
-         *
-         * 1) with multiple entry logs, checkpoint logic based on a entry log is
-         *    not possible, hence it needs to be timebased recurring thing and
-         *    it is driven by SyncThread. SyncThread.start does that and it is
-         *    started in Bookie.start method.
-         *
-         * 2) DbLedgerStorage
-         */
-        if (entryLogPerLedgerEnabled || isDbLedgerStorage) {
-            syncThread = new SyncThread(conf, getLedgerDirsListener(), ledgerStorage, checkpointSource, statsLogger) {
-                @Override
-                public void startCheckpoint(Checkpoint checkpoint) {
-                    /*
-                     * in the case of entryLogPerLedgerEnabled, LedgerStorage
-                     * dont drive checkpoint logic, but instead it is done
-                     * periodically by SyncThread. So startCheckpoint which
-                     * will be called by LedgerStorage will be no-op.
-                     */
-                }
-
-                @Override
-                public void start() {
-                    executor.scheduleAtFixedRate(() -> {
-                        doCheckpoint(checkpointSource.newCheckpoint());
-                    }, conf.getFlushInterval(), conf.getFlushInterval(), TimeUnit.MILLISECONDS);
-                }
-            };
         } else {
-            syncThread = new SyncThread(conf, getLedgerDirsListener(), ledgerStorage, checkpointSource, statsLogger);
+            syncThread = null;
         }
 
         LedgerStorage.LedgerDeletionListener ledgerDeletionListener = new LedgerStorage.LedgerDeletionListener() {
@@ -486,9 +525,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
             }
         };
 
-        ledgerStorage.setStateManager(stateManager);
-        ledgerStorage.setCheckpointSource(checkpointSource);
-        ledgerStorage.setCheckpointer(syncThread);
+
         ledgerStorage.registerLedgerDeletionListener(ledgerDeletionListener);
         handles = new HandleFactoryImpl(ledgerStorage);
 
@@ -649,7 +686,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         }
         //Start DiskChecker thread
         dirsMonitor.start();
-
+        boolean isDirectDbLedgerStorage = ledgerStorage instanceof DirectDbLedgerStorage;
         // replay journals
         try {
             readJournal();
@@ -658,18 +695,26 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
             shutdown(ExitCode.BOOKIE_EXCEPTION);
             return;
         }
-
-        // Do a fully flush after journal replay
-        try {
-            syncThread.requestFlush().get();
-        } catch (InterruptedException e) {
-            LOG.warn("Interrupting the fully flush after replaying journals : ", e);
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            LOG.error("Error on executing a fully flush after replaying journals.");
-            shutdown(ExitCode.BOOKIE_EXCEPTION);
-            return;
+        if (!isDirectDbLedgerStorage) {
+            // Do a fully flush after journal replay
+            try {
+                syncThread.requestFlush().get();
+            } catch (InterruptedException e) {
+                LOG.warn("Interrupting the fully flush after replaying journals : ", e);
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                LOG.error("Error on executing a fully flush after replaying journals.");
+                shutdown(ExitCode.BOOKIE_EXCEPTION);
+                return;
+            }
+            /*
+             * start sync thread first, so during replaying journals, we could do
+             * checkpoint which reduce the chance that we need to replay journals
+             * again if bookie restarted again before finished journal replays.
+             */
+            syncThread.start();
         }
+
 
         if (conf.isLocalConsistencyCheckOnStartup()) {
             LOG.info("Running local consistency check on startup prior to accepting IO.");
@@ -690,17 +735,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 return;
             }
         }
-
         LOG.info("Finished reading journal, starting bookie");
-
-
-        /*
-         * start sync thread first, so during replaying journals, we could do
-         * checkpoint which reduce the chance that we need to replay journals
-         * again if bookie restarted again before finished journal replays.
-         */
-        syncThread.start();
-
         // start bookie thread
         super.start();
 
@@ -709,6 +744,9 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         if (indexDirsManager != ledgerDirsManager) {
             indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        }
+        if (coldLedgerDirsManager != null) {
+            coldLedgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         }
 
         ledgerStorage.start();
@@ -860,15 +898,15 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 // turn bookie to read only during shutting down process
                 LOG.info("Turning bookie to read only during shut down");
                 stateManager.forceToReadOnly();
-
-                // Shutdown Sync thread
-                syncThread.shutdown();
-
+                boolean isDirectDbLedgerStorage = ledgerStorage instanceof DirectDbLedgerStorage;
+                if (!isDirectDbLedgerStorage) {
+                    // Shutdown Sync thread
+                    syncThread.shutdown();
+                }
                 // Shutdown journals
                 for (Journal journal : journals) {
                     journal.shutdown();
                 }
-
                 // Shutdown the EntryLogger which has the GarbageCollector Thread running
                 ledgerStorage.shutdown();
 
@@ -927,8 +965,13 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                                   boolean ackBeforeSync, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException, InterruptedException {
         long ledgerId = handle.getLedgerId();
-        long entryId = handle.addEntry(entry);
-
+        long entryId;
+        boolean isDirectDbLedgerStorage = ledgerStorage instanceof DirectDbLedgerStorage;
+        if (isDirectDbLedgerStorage) {
+            entryId = handle.addEntry(entry, ackBeforeSync, cb, ctx);
+        } else {
+            entryId = handle.addEntry(entry);
+        }
         bookieStats.getWriteBytes().addCount(entry.readableBytes());
 
         // journal `addEntry` should happen after the entry is added to ledger storage.
@@ -946,7 +989,9 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
                 }
             }
         }
-
+        if (isDirectDbLedgerStorage) {
+            return;
+        }
         if (!writeDataToJournal) {
             cb.writeComplete(0, ledgerId, entryId, null, ctx);
             if (ctx instanceof BookieRequestHandler) {

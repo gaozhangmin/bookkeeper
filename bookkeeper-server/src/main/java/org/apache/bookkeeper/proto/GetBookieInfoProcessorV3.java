@@ -60,7 +60,7 @@ public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements R
             LOG.debug("Received new getBookieInfo request: {}", request);
         }
         StatusCode status = StatusCode.EOK;
-        long freeDiskSpace = 0L, totalDiskSpace = 0L;
+        long freeDiskSpace = 0L, totalDiskSpace = 0L, totalColdDiskSpace = 0L, totalFreeColdDiskSpace = 0L;
         try {
             if ((requested & GetBookieInfoRequest.Flags.FREE_DISK_SPACE_VALUE) != 0) {
                 freeDiskSpace = requestProcessor.getBookie().getTotalFreeSpace();
@@ -70,8 +70,17 @@ public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements R
                 totalDiskSpace = requestProcessor.getBookie().getTotalDiskSpace();
                 getBookieInfoResponse.setTotalDiskCapacity(totalDiskSpace);
             }
+            if ((requested & GetBookieInfoRequest.Flags.TOTAL_COLD_DISK_CAPACITY_VALUE) != 0) {
+                totalColdDiskSpace = requestProcessor.getBookie().getTotalColdDiskSpace();
+                getBookieInfoResponse.setTotalColdDiskCapacity(totalColdDiskSpace);
+            }
+            if ((requested & GetBookieInfoRequest.Flags.FREE_COLD_DISK_SPACE_VALUE) != 0) {
+                totalFreeColdDiskSpace = requestProcessor.getBookie().getTotalFreeColdSpace();
+                getBookieInfoResponse.setFreeColdDiskSpace(totalFreeColdDiskSpace);
+            }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("FreeDiskSpace info is " + freeDiskSpace + " totalDiskSpace is: " + totalDiskSpace);
+                LOG.debug("FreeDiskSpace info is " + freeDiskSpace + " totalDiskSpace is: " + totalDiskSpace
+                        + " totalColdDiskSpace is: " + totalColdDiskSpace + "FreeColdDiskSpace info is " + totalFreeColdDiskSpace) ;
             }
             requestProcessor.getRequestStats().getGetBookieInfoStats()
                     .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
