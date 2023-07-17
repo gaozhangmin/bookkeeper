@@ -227,9 +227,6 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         });
 
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        if (!ledgerBaseDir.equals(indexBaseDir)) {
-            indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        }
         this.ledgerDirsManager = ledgerDirsManager;
         this.indexDirsManager = indexDirsManager;
     }
@@ -1151,8 +1148,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskAlmostFull(File disk) {
-                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
-                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
                     if (gcThread.isForceGCAllowWhenNoSpace()) {
                         gcThread.enableForceGC();
                     } else {
@@ -1163,8 +1159,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskFull(File disk) {
-                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
-                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
                     if (gcThread.isForceGCAllowWhenNoSpace()) {
                         gcThread.enableForceGC();
                     } else {
@@ -1187,8 +1182,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskWritable(File disk) {
-                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
-                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
                     // we have enough space now
                     if (gcThread.isForceGCAllowWhenNoSpace()) {
                         // disable force gc.
@@ -1203,8 +1197,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskJustWritable(File disk) {
-                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)
-                        || indexDirsManager.getAllLedgerDirs().contains(disk)) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
                     if (gcThread.isForceGCAllowWhenNoSpace()) {
                         // if a disk is just writable, we still need force gc.
                         gcThread.enableForceGC();
