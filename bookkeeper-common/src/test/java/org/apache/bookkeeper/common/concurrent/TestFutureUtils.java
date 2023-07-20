@@ -43,7 +43,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.LongStream;
 import org.apache.bookkeeper.common.util.OrderedScheduler;
-import org.apache.bookkeeper.common.util.SafeRunnable;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.junit.Test;
 
@@ -80,20 +79,20 @@ public class TestFutureUtils {
     @Test
     public void testWhenCompleteAsync() throws Exception {
         OrderedScheduler scheduler = OrderedScheduler.newSchedulerBuilder()
-            .name("test-when-complete-async")
-            .numThreads(1)
-            .build();
+                .name("test-when-complete-async")
+                .numThreads(1)
+                .build();
         AtomicLong resultHolder = new AtomicLong(0L);
         CountDownLatch latch = new CountDownLatch(1);
         CompletableFuture<Long> future = FutureUtils.createFuture();
         FutureUtils.whenCompleteAsync(
-            future,
-            (result, cause) -> {
-                resultHolder.set(result);
-                latch.countDown();
-            },
-            scheduler,
-            new Object());
+                future,
+                (result, cause) -> {
+                    resultHolder.set(result);
+                    latch.countDown();
+                },
+                scheduler,
+                new Object());
         FutureUtils.complete(future, 1234L);
         latch.await();
         assertEquals(1234L, resultHolder.get());
@@ -164,18 +163,18 @@ public class TestFutureUtils {
         OrderedScheduler scheduler = mock(OrderedScheduler.class);
         CompletableFuture<Long> doneFuture = FutureUtils.value(1234L);
         CompletableFuture<Long> withinFuture = FutureUtils.within(
-            doneFuture,
-            10,
-            TimeUnit.MILLISECONDS,
-            new TestException(),
-            scheduler,
-            1234L);
+                doneFuture,
+                10,
+                TimeUnit.MILLISECONDS,
+                new TestException(),
+                scheduler,
+                1234L);
         TimeUnit.MILLISECONDS.sleep(20);
         assertTrue(withinFuture.isDone());
         assertFalse(withinFuture.isCancelled());
         assertFalse(withinFuture.isCompletedExceptionally());
         verify(scheduler, times(0))
-            .scheduleOrdered(eq(1234L), isA(SafeRunnable.class), eq(10), eq(TimeUnit.MILLISECONDS));
+                .scheduleOrdered(eq(1234L), isA(Runnable.class), eq(10), eq(TimeUnit.MILLISECONDS));
     }
 
     @Test
@@ -183,34 +182,34 @@ public class TestFutureUtils {
         OrderedScheduler scheduler = mock(OrderedScheduler.class);
         CompletableFuture<Long> newFuture = FutureUtils.createFuture();
         CompletableFuture<Long> withinFuture = FutureUtils.within(
-            newFuture,
-            0,
-            TimeUnit.MILLISECONDS,
-            new TestException(),
-            scheduler,
-            1234L);
+                newFuture,
+                0,
+                TimeUnit.MILLISECONDS,
+                new TestException(),
+                scheduler,
+                1234L);
         TimeUnit.MILLISECONDS.sleep(20);
         assertFalse(withinFuture.isDone());
         assertFalse(withinFuture.isCancelled());
         assertFalse(withinFuture.isCompletedExceptionally());
         verify(scheduler, times(0))
-            .scheduleOrdered(eq(1234L), isA(SafeRunnable.class), eq(10), eq(TimeUnit.MILLISECONDS));
+                .scheduleOrdered(eq(1234L), isA(Runnable.class), eq(10), eq(TimeUnit.MILLISECONDS));
     }
 
     @Test
     public void testWithinCompleteBeforeTimeout() throws Exception {
         OrderedScheduler scheduler = mock(OrderedScheduler.class);
         ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
-        when(scheduler.scheduleOrdered(any(Object.class), any(SafeRunnable.class), anyLong(), any(TimeUnit.class)))
-            .thenAnswer(invocationOnMock -> scheduledFuture);
+        when(scheduler.scheduleOrdered(any(Object.class), any(Runnable.class), anyLong(), any(TimeUnit.class)))
+                .thenAnswer(invocationOnMock -> scheduledFuture);
         CompletableFuture<Long> newFuture = FutureUtils.createFuture();
         CompletableFuture<Long> withinFuture = FutureUtils.within(
-            newFuture,
-            Long.MAX_VALUE,
-            TimeUnit.MILLISECONDS,
-            new TestException(),
-            scheduler,
-            1234L);
+                newFuture,
+                Long.MAX_VALUE,
+                TimeUnit.MILLISECONDS,
+                new TestException(),
+                scheduler,
+                1234L);
         assertFalse(withinFuture.isDone());
         assertFalse(withinFuture.isCancelled());
         assertFalse(withinFuture.isCompletedExceptionally());
@@ -223,7 +222,7 @@ public class TestFutureUtils {
         assertEquals((Long) 5678L, FutureUtils.result(withinFuture));
 
         verify(scheduledFuture, times(1))
-            .cancel(eq(true));
+                .cancel(eq(true));
     }
 
     @Test
@@ -308,13 +307,13 @@ public class TestFutureUtils {
         OpStatsLogger statsLogger = mock(OpStatsLogger.class);
         CompletableFuture<Long> underlyFuture = FutureUtils.createFuture();
         CompletableFuture<Long> statsFuture = FutureUtils.stats(
-            underlyFuture,
-            statsLogger,
-            Stopwatch.createStarted());
+                underlyFuture,
+                statsLogger,
+                Stopwatch.createStarted());
         underlyFuture.complete(1234L);
         FutureUtils.result(statsFuture);
         verify(statsLogger, times(1))
-            .registerSuccessfulEvent(anyLong(), eq(TimeUnit.MICROSECONDS));
+                .registerSuccessfulEvent(anyLong(), eq(TimeUnit.MICROSECONDS));
     }
 
     @Test
@@ -322,26 +321,26 @@ public class TestFutureUtils {
         OpStatsLogger statsLogger = mock(OpStatsLogger.class);
         CompletableFuture<Long> underlyFuture = FutureUtils.createFuture();
         CompletableFuture<Long> statsFuture = FutureUtils.stats(
-            underlyFuture,
-            statsLogger,
-            Stopwatch.createStarted());
+                underlyFuture,
+                statsLogger,
+                Stopwatch.createStarted());
         underlyFuture.completeExceptionally(new TestException());
         FutureUtils.result(FutureUtils.ignore(statsFuture));
         verify(statsLogger, times(1))
-            .registerFailedEvent(anyLong(), eq(TimeUnit.MICROSECONDS));
+                .registerFailedEvent(anyLong(), eq(TimeUnit.MICROSECONDS));
     }
 
     @Test
     public void testProcessListSuccess() throws Exception {
         List<Long> longList = Lists.newArrayList(LongStream.range(0L, 10L).iterator());
         List<Long> expectedList = Lists.transform(
-            longList,
-            aLong -> 2 * aLong);
+                longList,
+                aLong -> 2 * aLong);
         Function<Long, CompletableFuture<Long>> sumFunc = value -> FutureUtils.value(2 * value);
         CompletableFuture<List<Long>> totalFuture = FutureUtils.processList(
-            longList,
-            sumFunc,
-            null);
+                longList,
+                sumFunc,
+                null);
         assertEquals(expectedList, FutureUtils.result(totalFuture));
     }
 
@@ -349,13 +348,13 @@ public class TestFutureUtils {
     public void testProcessEmptyList() throws Exception {
         List<Long> longList = Lists.newArrayList();
         List<Long> expectedList = Lists.transform(
-            longList,
-            aLong -> 2 * aLong);
+                longList,
+                aLong -> 2 * aLong);
         Function<Long, CompletableFuture<Long>> sumFunc = value -> FutureUtils.value(2 * value);
         CompletableFuture<List<Long>> totalFuture = FutureUtils.processList(
-            longList,
-            sumFunc,
-            null);
+                longList,
+                sumFunc,
+                null);
         assertEquals(expectedList, FutureUtils.result(totalFuture));
     }
 
@@ -372,9 +371,9 @@ public class TestFutureUtils {
             }
         };
         CompletableFuture<List<Long>> totalFuture = FutureUtils.processList(
-            longList,
-            sumFunc,
-            null);
+                longList,
+                sumFunc,
+                null);
         try {
             FutureUtils.result(totalFuture);
             fail("Should fail with TestException");

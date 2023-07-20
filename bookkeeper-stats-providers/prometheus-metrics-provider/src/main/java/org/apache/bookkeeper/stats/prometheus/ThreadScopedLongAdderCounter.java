@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with this
  * work for additional information regarding copyright ownership. The ASF
@@ -18,7 +18,7 @@ package org.apache.bookkeeper.stats.prometheus;
 
 import java.util.HashMap;
 import java.util.Map;
-
+import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.ThreadRegistry;
 
@@ -66,8 +66,13 @@ public class ThreadScopedLongAdderCounter implements Counter {
     }
 
     @Override
-    public void add(long delta) {
-        getCounter().add(delta);
+    public void addCount(long delta) {
+        getCounter().addCount(delta);
+    }
+
+    @Override
+    public void addLatency(long eventLatency, TimeUnit unit) {
+        getCounter().addLatency(eventLatency, unit);
     }
 
     @Override

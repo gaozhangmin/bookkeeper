@@ -99,7 +99,7 @@ public class TestPrometheusMetricsProvider {
         assertEquals(1L, counter.get().longValue());
         counter.dec();
         assertEquals(0L, counter.get().longValue());
-        counter.add(3);
+        counter.addCount(3);
         assertEquals(3L, counter.get().longValue());
     }
 

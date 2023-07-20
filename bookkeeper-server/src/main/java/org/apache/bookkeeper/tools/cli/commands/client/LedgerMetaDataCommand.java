@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import lombok.Setter;
 import lombok.experimental.Accessors;
+import org.apache.bookkeeper.client.BKException.BKLedgerExistException;
 import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
@@ -38,6 +39,7 @@ import org.apache.bookkeeper.tools.cli.helpers.BookieCommand;
 import org.apache.bookkeeper.tools.framework.CliFlags;
 import org.apache.bookkeeper.tools.framework.CliSpec;
 import org.apache.bookkeeper.util.LedgerIdFormatter;
+import org.apache.bookkeeper.versioning.LongVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,10 +70,10 @@ public class LedgerMetaDataCommand extends BookieCommand<LedgerMetaDataCommand.L
 
     public LedgerMetaDataCommand(LedgerMetadataFlag flag) {
         super(CliSpec.<LedgerMetadataFlag>newBuilder()
-                  .withName(NAME)
-                  .withDescription(DESC)
-                  .withFlags(flag)
-                  .build());
+                .withName(NAME)
+                .withDescription(DESC)
+                .withFlags(flag)
+                .build());
     }
 
     /**
@@ -87,11 +89,15 @@ public class LedgerMetaDataCommand extends BookieCommand<LedgerMetaDataCommand.L
         @Parameter(names = { "-d", "--dumptofile" }, description = "Dump metadata for ledger, to a file")
         private String dumpToFile = DEFAULT;
 
-        @Parameter(names = { "-r", "--restorefromefile" }, description = "Restore metadata for ledger, from a file")
+        @Parameter(names = { "-r", "--restorefromfile" }, description = "Restore metadata for ledger, from a file")
         private String restoreFromFile = DEFAULT;
 
         @Parameter(names =  {"-lf", "--ledgeridformatter"}, description = "Set ledger id formatter")
         private String ledgerIdFormatter = DEFAULT;
+
+        @Parameter(names = { "-u",
+                "--update" }, description = "Update metadata if already exist while restoring metadata")
+        private boolean update = false;
     }
 
     @Override
@@ -109,7 +115,7 @@ public class LedgerMetaDataCommand extends BookieCommand<LedgerMetaDataCommand.L
     }
 
     private boolean handler(ServerConfiguration conf, LedgerMetadataFlag flag)
-        throws MetadataException, ExecutionException {
+            throws MetadataException, ExecutionException {
         if (flag.ledgerId == DEFAULT_ID) {
             LOG.error("Must specific a ledger id");
             return false;
@@ -119,12 +125,20 @@ public class LedgerMetaDataCommand extends BookieCommand<LedgerMetaDataCommand.L
                 if (!flag.dumpToFile.equals(DEFAULT)) {
                     Versioned<LedgerMetadata> md = m.readLedgerMetadata(flag.ledgerId).join();
                     Files.write(FileSystems.getDefault().getPath(flag.dumpToFile),
-                                serDe.serialize(md.getValue()));
+                            serDe.serialize(md.getValue()));
                 } else if (!flag.restoreFromFile.equals(DEFAULT)) {
                     byte[] serialized = Files.readAllBytes(
-                        FileSystems.getDefault().getPath(flag.restoreFromFile));
+                            FileSystems.getDefault().getPath(flag.restoreFromFile));
                     LedgerMetadata md = serDe.parseConfig(serialized, flag.ledgerId, Optional.empty());
-                    m.createLedgerMetadata(flag.ledgerId, md).join();
+                    try {
+                        m.createLedgerMetadata(flag.ledgerId, md).join();
+                    } catch (Exception be) {
+                        if (!flag.update || !(be.getCause() instanceof BKLedgerExistException)) {
+                            throw be;
+                        }
+                        m.writeLedgerMetadata(flag.ledgerId, md, new LongVersion(-1L)).join();
+                        LOG.info("successsfully updated ledger metadata {}", flag.ledgerId);
+                    }
                 } else {
                     printLedgerMetadata(flag.ledgerId, m.readLedgerMetadata(flag.ledgerId).get().getValue(), true);
                 }

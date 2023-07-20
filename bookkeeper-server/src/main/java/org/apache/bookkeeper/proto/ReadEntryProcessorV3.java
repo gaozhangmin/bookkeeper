@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -57,11 +57,11 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
     protected final OpStatsLogger reqStats;
 
     public ReadEntryProcessorV3(Request request,
-                                Channel channel,
+                                BookieRequestHandler requestHandler,
                                 BookieRequestProcessor requestProcessor,
                                 ExecutorService fenceThreadPool) {
-        super(request, channel, requestProcessor);
-        requestProcessor.onReadRequestStart(channel);
+        super(request, requestHandler, requestProcessor);
+        requestProcessor.onReadRequestStart(requestHandler.ctx().channel());
 
         this.readRequest = request.getReadRequest();
         this.ledgerId = readRequest.getLedgerId();
@@ -102,10 +102,10 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
      *          timer for the read request
      */
     protected void handleReadResultForFenceRead(
-        final ByteBuf entryBody,
-        final ReadResponse.Builder readResponseBuilder,
-        final long entryId,
-        final Stopwatch startTimeSw) {
+            final ByteBuf entryBody,
+            final ReadResponse.Builder readResponseBuilder,
+            final long entryId,
+            final Stopwatch startTimeSw) {
         // reset last phase start time to measure fence result waiting time
         lastPhaseStartTime.reset().start();
         if (null != fenceThreadPool) {
@@ -149,7 +149,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
     protected ReadResponse readEntry(ReadResponse.Builder readResponseBuilder,
                                      long entryId,
                                      Stopwatch startTimeSw)
-        throws IOException, BookieException {
+            throws IOException, BookieException {
         return readEntry(readResponseBuilder, entryId, false, startTimeSw);
     }
 
@@ -169,7 +169,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
                                      long entryId,
                                      boolean readLACPiggyBack,
                                      Stopwatch startTimeSw)
-        throws IOException, BookieException {
+            throws IOException, BookieException {
         ByteBuf entryBody = requestProcessor.getBookie().readEntry(ledgerId, entryId);
         if (null != fenceResult) {
             handleReadResultForFenceRead(entryBody, readResponseBuilder, entryId, startTimeSw);
@@ -194,19 +194,20 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
 
     protected ReadResponse getReadResponse() {
         final Stopwatch startTimeSw = Stopwatch.createStarted();
+        final Channel channel = requestHandler.ctx().channel();
 
         final ReadResponse.Builder readResponse = ReadResponse.newBuilder()
-            .setLedgerId(ledgerId)
-            .setEntryId(entryId);
+                .setLedgerId(ledgerId)
+                .setEntryId(entryId);
         try {
             // handle fence reqest
             if (RequestUtils.isFenceRequest(readRequest)) {
                 LOG.info("Ledger fence request received for ledger: {} from address: {}", ledgerId,
-                    channel.remoteAddress());
+                        channel.remoteAddress());
                 if (!readRequest.hasMasterKey()) {
                     LOG.error(
-                        "Fence ledger request received without master key for ledger:{} from address: {}",
-                        ledgerId, channel.remoteAddress());
+                            "Fence ledger request received without master key for ledger:{} from address: {}",
+                            ledgerId, channel.remoteAddress());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 } else {
                     byte[] masterKey = readRequest.getMasterKey().toByteArray();
@@ -239,19 +240,19 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
             return buildResponse(readResponse, StatusCode.EUNKNOWNLEDGERSTATE, startTimeSw);
         } catch (BookieException e) {
             LOG.error(
-                "Unauthorized access to ledger:{} while reading entry:{} in request from address: {}",
+                    "Unauthorized access to ledger:{} while reading entry:{} in request from address: {}",
                     ledgerId, entryId, channel.remoteAddress());
             return buildResponse(readResponse, StatusCode.EUA, startTimeSw);
         }
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         requestProcessor.getRequestStats().getReadEntrySchedulingDelayStats().registerSuccessfulEvent(
-            MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
-        if (!channel.isOpen()) {
+                MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
+        if (!requestHandler.ctx().channel().isOpen()) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Dropping read request for closed channel: {}", channel);
+                LOG.debug("Dropping read request for closed channel: {}", requestHandler.ctx().channel());
             }
             requestProcessor.onReadRequestFinish();
             return;
@@ -259,10 +260,10 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
 
         if (!isVersionCompatible()) {
             ReadResponse readResponse = ReadResponse.newBuilder()
-                .setLedgerId(ledgerId)
-                .setEntryId(entryId)
-                .setStatus(StatusCode.EBADVERSION)
-                .build();
+                    .setLedgerId(ledgerId)
+                    .setEntryId(entryId)
+                    .setStatus(StatusCode.EBADVERSION)
+                    .build();
             sendResponse(readResponse);
             return;
         }
@@ -324,8 +325,8 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
                 .setStatus(readResponse.getStatus())
                 .setReadResponse(readResponse);
         sendResponse(response.getStatus(),
-                     response.build(),
-                     reqStats);
+                response.build(),
+                reqStats);
         requestProcessor.onReadRequestFinish();
     }
 

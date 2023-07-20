@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with this
  * work for additional information regarding copyright ownership. The ASF
@@ -20,6 +20,7 @@ import static com.codahale.metrics.MetricRegistry.name;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
+import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -70,8 +71,14 @@ public class CodahaleStatsLogger implements StatsLogger {
             }
 
             @Override
-            public void add(long delta) {
+            public void addCount(long delta) {
                 c.inc(delta);
+            }
+
+            @Override
+            public void addLatency(long eventLatency, TimeUnit unit) {
+                long valueMillis = unit.toMillis(eventLatency);
+                c.inc(valueMillis);
             }
         };
     }
@@ -82,11 +89,11 @@ public class CodahaleStatsLogger implements StatsLogger {
         metrics.remove(metricName);
 
         metrics.register(metricName, new com.codahale.metrics.Gauge<T>() {
-                @Override
-                public T getValue() {
-                    return gauge.getSample();
-                }
-            });
+            @Override
+            public T getValue() {
+                return gauge.getSample();
+            }
+        });
     }
 
     @Override
@@ -111,7 +118,7 @@ public class CodahaleStatsLogger implements StatsLogger {
     }
 
     /**
-        Thread-scoped stats not currently supported.
+     Thread-scoped stats not currently supported.
      */
     @Override
     public OpStatsLogger getThreadScopedOpStatsLogger(String name) {
@@ -119,7 +126,7 @@ public class CodahaleStatsLogger implements StatsLogger {
     }
 
     /**
-        Thread-scoped stats not currently supported.
+     Thread-scoped stats not currently supported.
      */
     @Override
     public Counter getThreadScopedCounter(String name) {

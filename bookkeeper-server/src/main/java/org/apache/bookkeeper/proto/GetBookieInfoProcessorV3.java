@@ -20,11 +20,8 @@
  */
 package org.apache.bookkeeper.proto;
 
-import io.netty.channel.Channel;
-
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.proto.BookkeeperProtocol.GetBookieInfoRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.GetBookieInfoResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
@@ -40,9 +37,9 @@ import org.slf4j.LoggerFactory;
 public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(GetBookieInfoProcessorV3.class);
 
-    public GetBookieInfoProcessorV3(Request request, Channel channel,
-                                     BookieRequestProcessor requestProcessor) {
-        super(request, channel, requestProcessor);
+    public GetBookieInfoProcessorV3(Request request, BookieRequestHandler requestHandler,
+                                    BookieRequestProcessor requestProcessor) {
+        super(request, requestHandler, requestProcessor);
     }
 
     private GetBookieInfoResponse getGetBookieInfoResponse() {
@@ -55,7 +52,7 @@ public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements R
         if (!isVersionCompatible()) {
             getBookieInfoResponse.setStatus(StatusCode.EBADVERSION);
             requestProcessor.getRequestStats().getGetBookieInfoStats()
-                .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                    .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
             return getBookieInfoResponse.build();
         }
 
@@ -73,20 +70,24 @@ public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements R
                 totalDiskSpace = requestProcessor.getBookie().getTotalDiskSpace();
                 getBookieInfoResponse.setTotalDiskCapacity(totalDiskSpace);
             }
-            LOG.debug("FreeDiskSpace info is " + freeDiskSpace + " totalDiskSpace is: " + totalDiskSpace);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("FreeDiskSpace info is " + freeDiskSpace + " totalDiskSpace is: " + totalDiskSpace);
+            }
+            requestProcessor.getRequestStats().getGetBookieInfoStats()
+                    .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
         } catch (IOException e) {
             status = StatusCode.EIO;
             LOG.error("IOException while getting  freespace/totalspace", e);
+            requestProcessor.getRequestStats().getGetBookieInfoStats()
+                    .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
         }
 
         getBookieInfoResponse.setStatus(status);
-        requestProcessor.getRequestStats().getGetBookieInfoStats()
-            .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
         return getBookieInfoResponse.build();
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         GetBookieInfoResponse getBookieInfoResponse = getGetBookieInfoResponse();
         sendResponse(getBookieInfoResponse);
     }
@@ -97,7 +98,7 @@ public class GetBookieInfoProcessorV3 extends PacketProcessorBaseV3 implements R
                 .setStatus(getBookieInfoResponse.getStatus())
                 .setGetBookieInfoResponse(getBookieInfoResponse);
         sendResponse(response.getStatus(),
-                     response.build(),
-                     requestProcessor.getRequestStats().getGetBookieInfoRequestStats());
+                response.build(),
+                requestProcessor.getRequestStats().getGetBookieInfoRequestStats());
     }
 }

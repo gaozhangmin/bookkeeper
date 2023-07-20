@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -27,7 +27,6 @@ import static org.apache.bookkeeper.bookie.TransactionalEntryLogCompactor.COMPAC
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
-
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -43,36 +42,39 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bookkeeper.bookie.EntryLogger.BufferedLogChannel;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger.BufferedLogChannel;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
 /**
  * An allocator pre-allocates entry log files.
  */
 @Slf4j
+public
 class EntryLoggerAllocator {
 
-    private long preallocatedLogId;
+    private AtomicLong preallocatedLogId;
     Future<BufferedLogChannel> preallocation = null;
     ExecutorService allocatorExecutor;
     private final ServerConfiguration conf;
     private final LedgerDirsManager ledgerDirsManager;
     private final Object createEntryLogLock = new Object();
     private final Object createCompactionLogLock = new Object();
-    private final EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
+    private final DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
     private final boolean entryLogPreAllocationEnabled;
     private final ByteBufAllocator byteBufAllocator;
-    final ByteBuf logfileHeader = Unpooled.buffer(EntryLogger.LOGFILE_HEADER_SIZE);
+    final ByteBuf logfileHeader = Unpooled.buffer(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
 
     EntryLoggerAllocator(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
-            EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, long logId,
-            ByteBufAllocator byteBufAllocator) {
+                         DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, long logId,
+                         ByteBufAllocator byteBufAllocator) {
         this.conf = conf;
         this.byteBufAllocator = byteBufAllocator;
         this.ledgerDirsManager = ledgerDirsManager;
-        this.preallocatedLogId = logId;
+        this.preallocatedLogId = new AtomicLong(logId);
         this.recentlyCreatedEntryLogsStatus = recentlyCreatedEntryLogsStatus;
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
         this.allocatorExecutor = Executors.newSingleThreadExecutor();
@@ -83,13 +85,13 @@ class EntryLoggerAllocator {
         // so there can be race conditions when entry logs are rolled over and
         // this header buffer is cleared before writing it into the new logChannel.
         logfileHeader.writeBytes("BKLO".getBytes(UTF_8));
-        logfileHeader.writeInt(EntryLogger.HEADER_CURRENT_VERSION);
-        logfileHeader.writerIndex(EntryLogger.LOGFILE_HEADER_SIZE);
+        logfileHeader.writeInt(DefaultEntryLogger.HEADER_CURRENT_VERSION);
+        logfileHeader.writerIndex(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
 
     }
 
     synchronized long getPreallocatedLogId() {
-        return preallocatedLogId;
+        return preallocatedLogId.get();
     }
 
     BufferedLogChannel createNewLog(File dirForNextEntryLog) throws IOException {
@@ -146,12 +148,12 @@ class EntryLoggerAllocator {
         // It would better not to overwrite existing entry log files
         File testLogFile = null;
         do {
-            if (preallocatedLogId >= Integer.MAX_VALUE) {
-                preallocatedLogId = 0;
+            if (preallocatedLogId.get() >= Integer.MAX_VALUE) {
+                preallocatedLogId = new AtomicLong(0);
             } else {
-                ++preallocatedLogId;
+                preallocatedLogId.incrementAndGet();
             }
-            logFileName = Long.toHexString(preallocatedLogId) + suffix;
+            logFileName = Long.toHexString(preallocatedLogId.get()) + suffix;
             for (File dir : ledgersDirs) {
                 testLogFile = new File(dir, logFileName);
                 if (testLogFile.exists()) {
@@ -167,19 +169,19 @@ class EntryLoggerAllocator {
         FileChannel channel = new RandomAccessFile(newLogFile, "rw").getChannel();
 
         BufferedLogChannel logChannel = new BufferedLogChannel(byteBufAllocator, channel, conf.getWriteBufferBytes(),
-                conf.getReadBufferBytes(), preallocatedLogId, newLogFile, conf.getFlushIntervalInBytes());
+                conf.getReadBufferBytes(), preallocatedLogId.get(), newLogFile, conf.getFlushIntervalInBytes());
         logfileHeader.readerIndex(0);
         logChannel.write(logfileHeader);
 
         for (File f : ledgersDirs) {
-            setLastLogId(f, preallocatedLogId);
+            setLastLogId(f, preallocatedLogId.get());
         }
 
-        if (suffix.equals(EntryLogger.LOG_FILE_SUFFIX)) {
-            recentlyCreatedEntryLogsStatus.createdEntryLog(preallocatedLogId);
+        if (suffix.equals(DefaultEntryLogger.LOG_FILE_SUFFIX)) {
+            recentlyCreatedEntryLogsStatus.createdEntryLog(preallocatedLogId.get());
         }
 
-        log.info("Created new entry log file {} for logId {}.", newLogFile, preallocatedLogId);
+        log.info("Created new entry log file {} for logId {}.", newLogFile, preallocatedLogId.get());
         return logChannel;
     }
 

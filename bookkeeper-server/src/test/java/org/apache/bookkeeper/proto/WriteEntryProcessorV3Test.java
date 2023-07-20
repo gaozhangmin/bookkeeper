@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import java.util.concurrent.CountDownLatch;
@@ -57,27 +58,35 @@ public class WriteEntryProcessorV3Test {
 
     private Request request;
     private WriteEntryProcessorV3 processor;
+
     private Channel channel;
+    private BookieRequestHandler requestHandler;
     private BookieRequestProcessor requestProcessor;
     private Bookie bookie;
 
     @Before
     public void setup() {
         request = Request.newBuilder()
-            .setHeader(BKPacketHeader.newBuilder()
-                .setTxnId(System.currentTimeMillis())
-                .setVersion(ProtocolVersion.VERSION_THREE)
-                .setOperation(OperationType.ADD_ENTRY)
-                .build())
-            .setAddRequest(AddRequest.newBuilder()
-                .setLedgerId(System.currentTimeMillis())
-                .setEntryId(System.currentTimeMillis() + 1)
-                .setBody(ByteString.copyFromUtf8("test-entry-data"))
-                .setMasterKey(ByteString.copyFrom(new byte[0]))
-                .build())
-            .build();
+                .setHeader(BKPacketHeader.newBuilder()
+                        .setTxnId(System.currentTimeMillis())
+                        .setVersion(ProtocolVersion.VERSION_THREE)
+                        .setOperation(OperationType.ADD_ENTRY)
+                        .build())
+                .setAddRequest(AddRequest.newBuilder()
+                        .setLedgerId(System.currentTimeMillis())
+                        .setEntryId(System.currentTimeMillis() + 1)
+                        .setBody(ByteString.copyFromUtf8("test-entry-data"))
+                        .setMasterKey(ByteString.copyFrom(new byte[0]))
+                        .build())
+                .build();
         channel = mock(Channel.class);
         when(channel.isOpen()).thenReturn(true);
+
+        requestHandler = mock(BookieRequestHandler.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+        when(ctx.channel()).thenReturn(channel);
+        when(requestHandler.ctx()).thenReturn(ctx);
+
         bookie = mock(Bookie.class);
         requestProcessor = mock(BookieRequestProcessor.class);
         when(requestProcessor.getBookie()).thenReturn(bookie);
@@ -85,22 +94,22 @@ public class WriteEntryProcessorV3Test {
         when(requestProcessor.getRequestStats()).thenReturn(new RequestStats(NullStatsLogger.INSTANCE));
         when(channel.isActive()).thenReturn(true);
         processor = new WriteEntryProcessorV3(
-            request,
-            channel,
-            requestProcessor);
+                request,
+                requestHandler,
+                requestProcessor);
     }
 
     private void reinitRequest(int priority) {
         request = Request.newBuilder(request)
-            .setHeader(BKPacketHeader.newBuilder(request.getHeader())
-                .setPriority(priority)
-                .build())
-            .build();
+                .setHeader(BKPacketHeader.newBuilder(request.getHeader())
+                        .setPriority(priority)
+                        .build())
+                .build();
 
         processor = new WriteEntryProcessorV3(
-            request,
-            channel,
-            requestProcessor);
+                request,
+                requestHandler,
+                requestProcessor);
     }
 
     @Test
@@ -168,18 +177,18 @@ public class WriteEntryProcessorV3Test {
             WriteCallback wc = invocationOnMock.getArgument(2);
 
             wc.writeComplete(
-                0,
-                request.getAddRequest().getLedgerId(),
-                request.getAddRequest().getEntryId(),
-                null,
-                null);
+                    0,
+                    request.getAddRequest().getLedgerId(),
+                    request.getAddRequest().getEntryId(),
+                    null,
+                    null);
             return null;
         }).when(bookie).addEntry(
-            any(ByteBuf.class),
-            eq(false),
-            any(WriteCallback.class),
-            same(channel),
-            eq(new byte[0]));
+                any(ByteBuf.class),
+                eq(false),
+                any(WriteCallback.class),
+                same(channel),
+                eq(new byte[0]));
 
         ChannelPromise promise = new DefaultChannelPromise(channel);
         AtomicReference<Object> writtenObject = new AtomicReference<>();
@@ -193,7 +202,7 @@ public class WriteEntryProcessorV3Test {
         processor.run();
 
         verify(bookie, times(1))
-            .addEntry(any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
+                .addEntry(any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
         verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         latch.await();
@@ -212,14 +221,14 @@ public class WriteEntryProcessorV3Test {
             WriteCallback wc = invocationOnMock.getArgument(2);
 
             wc.writeComplete(
-                0,
-                request.getAddRequest().getLedgerId(),
-                request.getAddRequest().getEntryId(),
-                null,
-                null);
+                    0,
+                    request.getAddRequest().getLedgerId(),
+                    request.getAddRequest().getEntryId(),
+                    null,
+                    null);
             return null;
         }).when(bookie).addEntry(
-            any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
+                any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
 
         ChannelPromise promise = new DefaultChannelPromise(channel);
         AtomicReference<Object> writtenObject = new AtomicReference<>();
@@ -233,7 +242,7 @@ public class WriteEntryProcessorV3Test {
         processor.run();
 
         verify(bookie, times(1))
-            .addEntry(any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
+                .addEntry(any(ByteBuf.class), eq(false), any(WriteCallback.class), same(channel), eq(new byte[0]));
         verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         latch.await();

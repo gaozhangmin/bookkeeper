@@ -24,10 +24,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
-
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.proto.BookieProtoEncoding.EnDecoder;
 import org.apache.bookkeeper.proto.BookieProtoEncoding.RequestEnDeCoderPreV3;
 import org.apache.bookkeeper.proto.BookieProtoEncoding.RequestEnDecoderV3;
@@ -79,22 +77,6 @@ public class ProtocolBenchmark {
         // prepare the encoder
         this.reqEnDeV2 = new RequestEnDeCoderPreV3(null);
         this.reqEnDeV3 = new RequestEnDecoderV3(null);
-    }
-
-
-    @Benchmark
-    public void testAddEntryV2() throws Exception {
-        ByteBufList list = ByteBufList.get(entry.retainedSlice());
-        BookieProtocol.AddRequest req = BookieProtocol.AddRequest.create(
-                BookieProtocol.CURRENT_PROTOCOL_VERSION,
-                ledgerId,
-                entryId,
-                flags,
-                masterKey,
-                list);
-        Object res = this.reqEnDeV2.encode(req, ByteBufAllocator.DEFAULT);
-        ReferenceCountUtil.release(res);
-        ReferenceCountUtil.release(list);
     }
 
     @Benchmark

@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -61,6 +61,16 @@ public class InMemoryEntryLogMetadataMap implements EntryLogMetadataMap {
     @Override
     public int size() {
         return entryLogMetaMap.size();
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return entryLogMetaMap.isEmpty();
+    }
+
+    @Override
+    public void clear() {
+        entryLogMetaMap.clear();
     }
 
     @Override

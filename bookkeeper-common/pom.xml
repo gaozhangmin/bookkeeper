@@ -60,6 +60,16 @@
       <artifactId>jctools-core</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.netty.incubator</groupId>
+      <artifactId>netty-incubator-transport-native-io_uring</artifactId>
+      <classifier>linux-x86_64</classifier>
+    </dependency>
+    <dependency>
+      <groupId>io.netty.incubator</groupId>
+      <artifactId>netty-incubator-transport-native-io_uring</artifactId>
+      <classifier>linux-aarch_64</classifier>
+    </dependency>
+    <dependency>
       <groupId>com.google.code.findbugs</groupId>
       <artifactId>jsr305</artifactId>
       <scope>provided</scope>
@@ -83,6 +93,11 @@
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

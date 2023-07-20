@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -105,6 +105,16 @@ public interface KeyValueStorage extends Closeable {
      *            the last key in the range (not included)
      */
     default void compact(byte[] firstKey, byte[] lastKey) throws IOException {}
+
+    /**
+     * Compact storage full range.
+     */
+    default void compact() throws IOException {}
+
+    /**
+     * Get storage path.
+     */
+    String getDBPath();
 
     /**
      * Get an iterator over to scan sequentially through all the keys in the

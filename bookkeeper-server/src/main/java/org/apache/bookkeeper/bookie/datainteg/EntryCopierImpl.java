@@ -23,8 +23,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
-
 import io.netty.buffer.ByteBuf;
+import io.netty.util.ReferenceCountUtil;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Comparator;
@@ -40,7 +40,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.bookie.LedgerStorage;
 import org.apache.bookkeeper.client.BKException;
@@ -144,7 +143,7 @@ public class EntryCopierImpl implements EntryCopier {
                         } catch (Throwable t) {
                             promise.completeExceptionally(t);
                         } finally {
-                            buffer.release();
+                            ReferenceCountUtil.release(buffer);
                         }
                     }
                 });

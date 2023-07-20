@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -26,15 +26,12 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ExtensionRegistry;
-
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
-
 import org.apache.bookkeeper.auth.AuthProviderFactoryFactory;
 import org.apache.bookkeeper.auth.ClientAuthProvider;
 import org.apache.bookkeeper.auth.TestAuth;
@@ -84,7 +81,7 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
         BookieServer bookie1 = startAndStoreBookie(bookieConf);
 
         AuthMessage.Builder builder = AuthMessage.newBuilder()
-            .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
+                .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
         builder.setPayload(ByteString.copyFrom(PAYLOAD_MESSAGE));
         final AuthMessage authMessage = builder.build();
 
@@ -106,7 +103,7 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
         BookieServer bookie1 = startAndStoreBookie(bookieConf);
 
         AuthMessage.Builder builder = AuthMessage.newBuilder()
-            .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
+                .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
         builder.setPayload(ByteString.copyFrom(PAYLOAD_MESSAGE));
         final AuthMessage authMessage = builder.build();
         CompatClient42 client = newCompatClient(bookie1.getBookieId());
@@ -118,15 +115,15 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
             assertTrue("Should be auth response", response instanceof AuthResponse);
             AuthResponse authResponse = (AuthResponse) response;
             assertEquals("Should have succeeded",
-                         response.getErrorCode(), BookieProtocol.EOK);
+                    response.getErrorCode(), BookieProtocol.EOK);
             byte[] type = authResponse.getAuthMessage()
-                .getPayload().toByteArray();
+                    .getPayload().toByteArray();
             if (i == 2) {
                 assertArrayEquals("Should succeed after 3",
-                             type, SUCCESS_RESPONSE);
+                        type, SUCCESS_RESPONSE);
             } else {
                 assertArrayEquals("Should be payload", type,
-                             PAYLOAD_MESSAGE);
+                        PAYLOAD_MESSAGE);
             }
         }
     }
@@ -139,7 +136,7 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
         BookieServer bookie1 = startAndStoreBookie(bookieConf);
 
         AuthMessage.Builder builder = AuthMessage.newBuilder()
-            .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
+                .setAuthPluginName(TestAuth.TEST_AUTH_PROVIDER_PLUGIN_NAME);
         builder.setPayload(ByteString.copyFrom(PAYLOAD_MESSAGE));
         final AuthMessage authMessage = builder.build();
         CompatClient42 client = newCompatClient(bookie1.getBookieId());
@@ -151,24 +148,25 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
             assertTrue("Should be auth response", response instanceof AuthResponse);
             AuthResponse authResponse = (AuthResponse) response;
             assertEquals("Should have succeeded",
-                         response.getErrorCode(), BookieProtocol.EOK);
+                    response.getErrorCode(), BookieProtocol.EOK);
             byte[] type = authResponse.getAuthMessage()
-                .getPayload().toByteArray();
+                    .getPayload().toByteArray();
             if (i == 2) {
                 assertArrayEquals("Should fail after 3",
-                             type, FAILURE_RESPONSE);
+                        type, FAILURE_RESPONSE);
             } else {
                 assertArrayEquals("Should be payload", type,
-                             PAYLOAD_MESSAGE);
+                        PAYLOAD_MESSAGE);
             }
 
         }
 
-        client.sendRequest(new ReadRequest(BookieProtocol.CURRENT_PROTOCOL_VERSION,
-                                           1L, 1L, (short) 0, null));
+        ReadRequest read = ReadRequest.create(BookieProtocol.CURRENT_PROTOCOL_VERSION,
+                1L, 1L, (short) 0, null);
+        client.sendRequest(read);
         Response response = client.takeResponse();
         assertEquals("Should have failed",
-                     response.getErrorCode(), BookieProtocol.EUA);
+                response.getErrorCode(), BookieProtocol.EUA);
     }
 
     // copy from TestAuth
@@ -195,14 +193,14 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
                        ClientAuthProvider.Factory authProviderFactory,
                        ExtensionRegistry extRegistry) throws Exception {
             super(conf,
-                executor,
-                eventLoopGroup,
-                addr,
-                NullStatsLogger.INSTANCE,
-                authProviderFactory,
-                extRegistry,
-                null,
-                BookieSocketAddress.LEGACY_BOOKIEID_RESOLVER);
+                    executor,
+                    eventLoopGroup,
+                    addr,
+                    NullStatsLogger.INSTANCE,
+                    authProviderFactory,
+                    extRegistry,
+                    null,
+                    BookieSocketAddress.LEGACY_BOOKIEID_RESOLVER);
 
             state = ConnectionState.CONNECTING;
             ChannelFuture future = connect();
@@ -235,4 +233,3 @@ public class TestBackwardCompatCMS42 extends BookKeeperClusterTestCase {
         }
     }
 }
-

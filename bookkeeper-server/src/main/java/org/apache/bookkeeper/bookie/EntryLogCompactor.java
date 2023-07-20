@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,11 +22,11 @@
 package org.apache.bookkeeper.bookie;
 
 import io.netty.buffer.ByteBuf;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
+import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +59,7 @@ public class EntryLogCompactor extends AbstractLogCompactor {
     public boolean compact(EntryLogMetadata entryLogMeta) {
         try {
             entryLogger.scanEntryLog(entryLogMeta.getEntryLogId(),
-                scannerFactory.newScanner(entryLogMeta));
+                    scannerFactory.newScanner(entryLogMeta));
             scannerFactory.flush();
             LOG.info("Removing entry log {} after compaction", entryLogMeta.getEntryLogId());
             logRemovalListener.removeEntryLog(entryLogMeta.getEntryLogId());
@@ -82,9 +82,9 @@ public class EntryLogCompactor extends AbstractLogCompactor {
     class CompactionScannerFactory {
         List<EntryLocation> offsets = new ArrayList<EntryLocation>();
 
-        EntryLogger.EntryLogScanner newScanner(final EntryLogMetadata meta) {
+        EntryLogScanner newScanner(final EntryLogMetadata meta) {
 
-            return new EntryLogger.EntryLogScanner() {
+            return new EntryLogScanner() {
                 @Override
                 public boolean accept(long ledgerId) {
                     return meta.containsLedger(ledgerId);

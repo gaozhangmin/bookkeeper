@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,7 +18,6 @@
 package org.apache.bookkeeper.proto;
 
 import com.google.common.base.Stopwatch;
-import io.netty.channel.Channel;
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
 import java.io.IOException;
@@ -55,12 +54,12 @@ class LongPollReadEntryProcessorV3 extends ReadEntryProcessorV3 implements Watch
     private boolean shouldReadEntry = false;
 
     LongPollReadEntryProcessorV3(Request request,
-                                 Channel channel,
+                                 BookieRequestHandler requestHandler,
                                  BookieRequestProcessor requestProcessor,
                                  ExecutorService fenceThreadPool,
                                  ExecutorService longPollThreadPool,
                                  HashedWheelTimer requestTimer) {
-        super(request, channel, requestProcessor, fenceThreadPool);
+        super(request, requestHandler, requestProcessor, fenceThreadPool);
         this.previousLAC = readRequest.getPreviousLAC();
         this.longPollThreadPool = longPollThreadPool;
         this.requestTimer = requestTimer;
@@ -114,7 +113,7 @@ class LongPollReadEntryProcessorV3 extends ReadEntryProcessorV3 implements Watch
                     if (knownLAC < previousLAC) {
                         if (logger.isDebugEnabled()) {
                             logger.debug("Found smaller lac when piggy back reading lac and entry from ledger {} :"
-                                    + " previous lac = {}, known lac = {}",
+                                            + " previous lac = {}, known lac = {}",
                                     ledgerId, previousLAC, knownLAC);
                         }
                     }
@@ -164,10 +163,10 @@ class LongPollReadEntryProcessorV3 extends ReadEntryProcessorV3 implements Watch
                 }
                 synchronized (this) {
                     expirationTimerTask = requestTimer.newTimeout(timeout -> {
-                            requestProcessor.getBookie().cancelWaitForLastAddConfirmedUpdate(ledgerId, this);
-                            // When the timeout expires just get whatever is the current
-                            // readLastConfirmed
-                            LongPollReadEntryProcessorV3.this.scheduleDeferredRead(true);
+                        requestProcessor.getBookie().cancelWaitForLastAddConfirmedUpdate(ledgerId, this);
+                        // When the timeout expires just get whatever is the current
+                        // readLastConfirmed
+                        LongPollReadEntryProcessorV3.this.scheduleDeferredRead(true);
                     }, readRequest.getTimeOut(), TimeUnit.MILLISECONDS);
                 }
                 return null;

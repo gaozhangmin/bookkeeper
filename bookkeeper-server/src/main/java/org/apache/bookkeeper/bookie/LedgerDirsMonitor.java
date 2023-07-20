@@ -27,7 +27,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
-
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -47,6 +46,7 @@ import org.slf4j.LoggerFactory;
  */
 class LedgerDirsMonitor {
     private static final Logger LOG = LoggerFactory.getLogger(LedgerDirsMonitor.class);
+    private static final float DISK_USAGE_DELTA = 0.3f;
 
     private final int interval;
     private final ServerConfiguration conf;
@@ -92,9 +92,7 @@ class LedgerDirsMonitor {
                         }
                         return e.getUsage();
                     });
-                    for (LedgerDirsListener listener : ldm.getListeners()) {
-                        listener.diskAlmostFull(dir);
-                    }
+                    ldm.addToWarnDirs(dir);
                 } catch (DiskOutOfSpaceException e) {
                     diskUsages.compute(dir, (d, prevUsage) -> {
                         if (null == prevUsage || e.getUsage() != prevUsage) {
@@ -125,6 +123,28 @@ class LedgerDirsMonitor {
             }
         }
 
+        // - Update warnThresholdDirs disk usage.
+        List<File> warnDirs = new ArrayList<File>(ldm.getWarnLedgerDirs());
+        for (File dir : warnDirs) {
+            try {
+                float usage = diskChecker.checkDir(dir);
+                diskUsages.put(dir, usage);
+                if (usage + DISK_USAGE_DELTA < conf.getDiskUsageWarnThreshold()) {
+                    ldm.removeFromWarnDirs(dir);
+                }
+            } catch (DiskErrorException e) {
+                // Notify disk failure to all the listeners
+                for (LedgerDirsListener listener : ldm.getListeners()) {
+                    listener.diskFailed(dir);
+                }
+            } catch (DiskWarnThresholdException e) {
+                diskUsages.put(dir, e.getUsage());
+            } catch (DiskOutOfSpaceException e) {
+                diskUsages.put(dir, e.getUsage());
+                ldm.addToFilledDirs(dir);
+            }
+        }
+
         List<File> fullfilledDirs = new ArrayList<File>(ldm.getFullFilledLedgerDirs());
         boolean makeWritable = ldm.hasWritableLedgerDirs();
 
@@ -137,11 +157,11 @@ class LedgerDirsMonitor {
                 float totalDiskUsage = diskChecker.getTotalDiskUsage(ldm.getAllLedgerDirs());
                 if (totalDiskUsage < conf.getDiskLowWaterMarkUsageThreshold()) {
                     makeWritable = true;
-                } else {
+                } else if (LOG.isDebugEnabled()) {
                     LOG.debug(
-                        "Current TotalDiskUsage: {} is greater than LWMThreshold: {}."
-                                + " So not adding any filledDir to WritableDirsList",
-                        totalDiskUsage, conf.getDiskLowWaterMarkUsageThreshold());
+                            "Current TotalDiskUsage: {} is greater than LWMThreshold: {}."
+                                    + " So not adding any filledDir to WritableDirsList",
+                            totalDiskUsage, conf.getDiskLowWaterMarkUsageThreshold());
                 }
             }
             // Update all full-filled disk space usage
@@ -224,7 +244,7 @@ class LedgerDirsMonitor {
     public void shutdown() {
         LOG.info("Shutting down LedgerDirsMonitor");
         if (null != checkTask) {
-            if (checkTask.cancel(true)) {
+            if (checkTask.cancel(true) && LOG.isDebugEnabled()) {
                 LOG.debug("Failed to cancel check task in LedgerDirsMonitor");
             }
         }

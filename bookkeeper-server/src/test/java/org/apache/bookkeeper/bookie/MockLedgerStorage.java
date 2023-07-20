@@ -22,8 +22,8 @@ package org.apache.bookkeeper.bookie;
 import com.google.common.util.concurrent.RateLimiter;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -31,7 +31,6 @@ import java.util.Optional;
 import java.util.PrimitiveIterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -41,7 +40,7 @@ import org.apache.bookkeeper.stats.StatsLogger;
 /**
  * A mock for running tests that require ledger storage.
  */
-public class MockLedgerStorage implements LedgerStorage {
+public class MockLedgerStorage implements CompactableLedgerStorage {
 
     private static class LedgerInfo {
         boolean limbo = false;
@@ -58,6 +57,7 @@ public class MockLedgerStorage implements LedgerStorage {
 
     private final ConcurrentHashMap<Long, LedgerInfo> ledgers = new ConcurrentHashMap<>();
     private final EnumSet<StorageState> storageStateFlags = EnumSet.noneOf(StorageState.class);
+    private final List<EntryLocation> entryLocations = new ArrayList<>();
 
     @Override
     public void initialize(ServerConfiguration conf,
@@ -98,14 +98,14 @@ public class MockLedgerStorage implements LedgerStorage {
     public boolean setFenced(long ledgerId) throws IOException {
         AtomicBoolean ret = new AtomicBoolean(false);
         LedgerInfo previous = ledgers.computeIfPresent(ledgerId, (ledgerId1, current) -> {
-                if (!current.fenced) {
-                    current.fenced = true;
-                    ret.set(true);
-                } else {
-                    ret.set(false);
-                }
-                return current;
-            });
+            if (!current.fenced) {
+                current.fenced = true;
+                ret.set(true);
+            } else {
+                ret.set(false);
+            }
+            return current;
+        });
         if (previous == null) {
             throw new Bookie.NoLedgerException(ledgerId);
         }
@@ -124,9 +124,9 @@ public class MockLedgerStorage implements LedgerStorage {
     @Override
     public void setLimboState(long ledgerId) throws IOException {
         LedgerInfo previous = ledgers.computeIfPresent(ledgerId, (ledgerId1, current) -> {
-                current.limbo = true;
-                return current;
-            });
+            current.limbo = true;
+            return current;
+        });
         if (previous == null) {
             throw new Bookie.NoLedgerException(ledgerId);
         }
@@ -143,9 +143,9 @@ public class MockLedgerStorage implements LedgerStorage {
     @Override
     public void clearLimboState(long ledgerId) throws IOException {
         LedgerInfo previous = ledgers.computeIfPresent(ledgerId, (ledgerId1, current) -> {
-                current.limbo = false;
-                return current;
-            });
+            current.limbo = false;
+            return current;
+        });
         if (previous == null) {
             throw new Bookie.NoLedgerException(ledgerId);
         }
@@ -154,11 +154,11 @@ public class MockLedgerStorage implements LedgerStorage {
     @Override
     public void setMasterKey(long ledgerId, byte[] masterKey) throws IOException {
         LedgerInfo previous = ledgers.compute(ledgerId, (ledgerId1, current) -> {
-                if (current != null) {
-                    return current;
-                }
-                return new LedgerInfo(masterKey);
-            });
+            if (current != null) {
+                return current;
+            }
+            return new LedgerInfo(masterKey);
+        });
         if (previous != null && !Arrays.equals(masterKey, previous.masterKey)) {
             throw new IOException(BookieException.create(BookieException.Code.IllegalOpException));
         }
@@ -193,12 +193,12 @@ public class MockLedgerStorage implements LedgerStorage {
         long lac = extractLac(copy);
 
         LedgerInfo previous = ledgers.computeIfPresent(ledgerId, (ledgerId1, current) -> {
-                if (lac > current.lac) {
-                    current.lac = lac;
-                }
-                current.entries.put(entryId, copy);
-                return current;
-            });
+            if (lac > current.lac) {
+                current.lac = lac;
+            }
+            current.entries.put(entryId, copy);
+            return current;
+        });
         if (previous == null) {
             throw new Bookie.NoLedgerException(ledgerId);
         }
@@ -242,7 +242,7 @@ public class MockLedgerStorage implements LedgerStorage {
 
     @Override
     public void deleteLedger(long ledgerId) throws IOException {
-        throw new UnsupportedOperationException("Not supported in mock, implement if you need it");
+        ledgers.remove(ledgerId);
     }
 
     @Override
@@ -262,64 +262,83 @@ public class MockLedgerStorage implements LedgerStorage {
 
     @Override
     public LedgerStorage getUnderlyingLedgerStorage() {
-        return LedgerStorage.super.getUnderlyingLedgerStorage();
+        return CompactableLedgerStorage.super.getUnderlyingLedgerStorage();
     }
 
     @Override
     public void forceGC() {
-        LedgerStorage.super.forceGC();
+        CompactableLedgerStorage.super.forceGC();
     }
 
     @Override
     public void forceGC(boolean forceMajor, boolean forceMinor,
                         double majorCompactionThreshold, double minorCompactionThreshold,
                         long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
-        LedgerStorage.super.forceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
+        CompactableLedgerStorage.super.forceGC(forceMajor, forceMinor, majorCompactionThreshold, minorCompactionThreshold,
                 majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }
 
     public void suspendMinorGC() {
-        LedgerStorage.super.suspendMinorGC();
+        CompactableLedgerStorage.super.suspendMinorGC();
     }
 
     public void suspendMajorGC() {
-        LedgerStorage.super.suspendMajorGC();
+        CompactableLedgerStorage.super.suspendMajorGC();
     }
 
     public void resumeMinorGC() {
-        LedgerStorage.super.resumeMinorGC();
+        CompactableLedgerStorage.super.resumeMinorGC();
     }
 
     public void resumeMajorGC() {
-        LedgerStorage.super.suspendMajorGC();
+        CompactableLedgerStorage.super.suspendMajorGC();
     }
 
     public boolean isMajorGcSuspended() {
-        return LedgerStorage.super.isMajorGcSuspended();
+        return CompactableLedgerStorage.super.isMajorGcSuspended();
     }
 
     public boolean isMinorGcSuspended() {
-        return LedgerStorage.super.isMinorGcSuspended();
+        return CompactableLedgerStorage.super.isMinorGcSuspended();
     }
 
     @Override
     public List<DetectedInconsistency> localConsistencyCheck(Optional<RateLimiter> rateLimiter) throws IOException {
-        return LedgerStorage.super.localConsistencyCheck(rateLimiter);
+        return CompactableLedgerStorage.super.localConsistencyCheck(rateLimiter);
     }
 
     @Override
     public boolean isInForceGC() {
-        return LedgerStorage.super.isInForceGC();
+        return CompactableLedgerStorage.super.isInForceGC();
     }
 
     @Override
     public List<GarbageCollectionStatus> getGarbageCollectionStatus() {
-        return LedgerStorage.super.getGarbageCollectionStatus();
+        return CompactableLedgerStorage.super.getGarbageCollectionStatus();
     }
 
     @Override
     public PrimitiveIterator.OfLong getListOfEntriesOfLedger(long ledgerId) throws IOException {
         throw new UnsupportedOperationException("Not supported in mock, implement if you need it");
+    }
+
+    @Override
+    public Iterable<Long> getActiveLedgersInRange(long firstLedgerId, long lastLedgerId)
+            throws IOException {
+        throw new UnsupportedOperationException("Not supported in mock, implement if you need it");
+    }
+
+    public List<EntryLocation> getUpdatedLocations() {
+        return entryLocations;
+    }
+
+    @Override
+    public void updateEntriesLocations(Iterable<EntryLocation> locations) throws IOException {
+        synchronized (entryLocations) {
+            for (EntryLocation l : locations) {
+                entryLocations.add(l);
+            }
+        }
     }
 
     @Override
@@ -336,4 +355,7 @@ public class MockLedgerStorage implements LedgerStorage {
     public void clearStorageStateFlag(StorageState flag) throws IOException {
         storageStateFlags.remove(flag);
     }
+
+    @Override
+    public void flushEntriesLocationsIndex() throws IOException { }
 }

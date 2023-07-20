@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.client.api.BKException;
 import org.apache.bookkeeper.common.concurrent.FutureUtils;
 import org.apache.bookkeeper.common.util.Watcher;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -154,6 +155,19 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
         }
 
         return ledgerStorage.addEntry(entry);
+    }
+
+    @Override
+    long addEntry(ByteBuf entry, boolean ackBeforeSync,
+                  BookkeeperInternalCallbacks.WriteCallback cb, Object ctx)
+            throws InterruptedException, IOException, BookieException {
+        long ledgerId = entry.getLong(entry.readerIndex());
+
+        if (ledgerId != this.ledgerId) {
+            throw new IOException("Entry for ledger " + ledgerId + " was sent to " + this.ledgerId);
+        }
+
+        return ledgerStorage.addEntry(entry, ackBeforeSync, cb, ctx );
     }
 
     @Override

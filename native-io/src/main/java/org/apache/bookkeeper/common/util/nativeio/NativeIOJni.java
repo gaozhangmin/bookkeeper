@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -34,6 +34,8 @@ class NativeIOJni {
      */
     static native int fallocate(int fd, int mode, long offset, long len) throws NativeIOException;
 
+    static native int posix_fadvise(int fd, long offset, long len, int flag) throws NativeIOException;
+
     static native int pwrite(int fd, long pointer, int count, long offset) throws NativeIOException;
 
     static native long posix_memalign(int alignment, int size) throws NativeIOException;
@@ -49,9 +51,9 @@ class NativeIOJni {
     static {
         try {
             if (SystemUtils.IS_OS_MAC_OSX) {
-                NativeUtils.loadLibraryFromJar("/lib/libnative-io-jni.dylib");
+                NativeUtils.loadLibraryFromJar("/lib/libnative-io.jnilib");
             } else if (SystemUtils.IS_OS_LINUX) {
-                NativeUtils.loadLibraryFromJar("/lib/libnative-io-jni.so");
+                NativeUtils.loadLibraryFromJar("/lib/libnative-io.so");
             } else {
                 throw new RuntimeException("OS not supported by Native-IO utils");
             }

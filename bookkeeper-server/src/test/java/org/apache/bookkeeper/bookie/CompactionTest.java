@@ -38,16 +38,13 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -55,9 +52,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
-
 import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
+import org.apache.bookkeeper.bookie.storage.CompactionEntryLog;
 import org.apache.bookkeeper.bookie.storage.ldb.PersistentEntryLogMetadataMap;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -75,7 +72,6 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.test.TestStatsProvider;
 import org.apache.bookkeeper.util.DiskChecker;
-import org.apache.bookkeeper.util.HardLink;
 import org.apache.bookkeeper.util.TestUtils;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
@@ -156,7 +152,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
     }
 
     LedgerHandle[] prepareData(int numEntryLogs, boolean changeNum)
-        throws Exception {
+            throws Exception {
         // since an entry log file can hold at most 100 entries
         // first ledger write 2 entries, which is less than low water mark
         int num1 = 2;
@@ -207,10 +203,10 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // disable compaction
         // restart bookies
         restartBookies(c -> {
-                c.setMinorCompactionThreshold(0.0f);
-                c.setMajorCompactionThreshold(0.0f);
-                return c;
-            });
+            c.setMinorCompactionThreshold(0.0f);
+            c.setMajorCompactionThreshold(0.0f);
+            return c;
+        });
 
         long lastMinorCompactionTime = getGCThread().lastMinorCompactionTime;
         long lastMajorCompactionTime = getGCThread().lastMajorCompactionTime;
@@ -235,7 +231,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0,1].log) should not be compacted.
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertTrue("Not Found entry log file ([0,1].log that should have been compacted in ledgerDirectory: "
-                            + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, false, 0, 1));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, false, 0, 1));
         }
     }
 
@@ -292,7 +288,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
             @Override
             public void checkpointComplete(Checkpoint checkPoint, boolean compact)
-                throws IOException {
+                    throws IOException {
                 // Do nothing.
             }
         };
@@ -306,12 +302,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             try (LedgerManager lm = lmf.newLedgerManager()) {
                 InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
                 storage.initialize(
-                    conf,
-                    lm,
-                    dirManager,
-                    dirManager,
-                    NullStatsLogger.INSTANCE,
-                    UnpooledByteBufAllocator.DEFAULT);
+                        conf,
+                        lm,
+                        dirManager,
+                        dirManager,
+                        NullStatsLogger.INSTANCE,
+                        UnpooledByteBufAllocator.DEFAULT);
                 storage.setCheckpointSource(cp);
                 storage.setCheckpointer(Checkpointer.NULL);
 
@@ -323,8 +319,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                 // Minor and Major compaction times should be larger than when we started
                 // this test.
                 assertTrue("Minor or major compaction did not trigger even on forcing.",
-                    storage.gcThread.lastMajorCompactionTime > startTime
-                        && storage.gcThread.lastMinorCompactionTime > startTime);
+                        storage.gcThread.lastMajorCompactionTime > startTime
+                                && storage.gcThread.lastMinorCompactionTime > startTime);
                 storage.shutdown();
             } catch (Exception e) {
                 throw new UncheckedExecutionException(e.getMessage(), e);
@@ -340,7 +336,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
     }
 
     public void testForceGarbageCollectionWhenDiskIsFull(boolean isForceCompactionAllowWhenDisableCompaction)
-        throws Exception {
+            throws Exception {
 
         restartBookies(conf -> {
             if (isForceCompactionAllowWhenDisableCompaction) {
@@ -416,13 +412,13 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable major compaction
-                c.setMajorCompactionThreshold(0.0f);
-                c.setGcWaitTime(60000);
-                c.setMinorCompactionInterval(120000);
-                c.setMajorCompactionInterval(240000);
-                return c;
-            });
+            // disable major compaction
+            c.setMajorCompactionThreshold(0.0f);
+            c.setGcWaitTime(60000);
+            c.setMinorCompactionInterval(120000);
+            c.setMajorCompactionInterval(240000);
+            return c;
+        });
 
 
         getGCThread().enableForceGC();
@@ -538,7 +534,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0,1,2].log) should be compacted.
         for (File ledgerDirectory : tmpDirs.getDirs()) {
             assertFalse("Found entry log file ([0,1,2].log that should have not been compacted in ledgerDirectory: "
-                            + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
         }
 
         // even though entry log files are removed, we still can access entries for ledger1
@@ -724,7 +720,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         bkc.deleteLedger(lhs[2].getId());
 
         // Need to wait until entry log 3 gets flushed before initiating GC to satisfy assertions.
-        while (!getGCThread().entryLogger.isFlushedEntryLog(3L)) {
+        while (!getGCThread().entryLogger.getFlushedLogIds().contains(3L)) {
             TimeUnit.MILLISECONDS.sleep(100);
         }
 
@@ -748,7 +744,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // Now, let's mark E1 as flushed, as its ledger L1 has been deleted already. In this case, the GC algorithm
         // should consider it for deletion.
-        getGCThread().entryLogger.recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(1L);
+        ((DefaultEntryLogger) getGCThread().entryLogger).recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(1L);
         getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
                 baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 1.log that should have been compacted in ledgerDirectory: "
@@ -760,7 +756,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                 baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 0.log that should not have been compacted in ledgerDirectory: "
                 + tmpDirs.getDirs().get(0), TestUtils.hasAllLogFiles(tmpDirs.getDirs().get(0), 0));
-        getGCThread().entryLogger.recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(0L);
+        ((DefaultEntryLogger) getGCThread().entryLogger).recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(0L);
         getGCThread().triggerGC(true, false, false, majorCompactionThreshold, minorCompactionThreshold,
                 baseConf.getMajorCompactionMaxTimeMillis(), baseConf.getMinorCompactionMaxTimeMillis()).get();
         assertTrue("Found entry log file 0.log that should have been compacted in ledgerDirectory: "
@@ -778,13 +774,13 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable major compaction
-                c.setMajorCompactionThreshold(0.0f);
-                c.setGcWaitTime(60000);
-                c.setMinorCompactionInterval(120000);
-                c.setMajorCompactionInterval(240000);
-                return c;
-            });
+            // disable major compaction
+            c.setMajorCompactionThreshold(0.0f);
+            c.setGcWaitTime(60000);
+            c.setMinorCompactionInterval(120000);
+            c.setMajorCompactionInterval(240000);
+            return c;
+        });
 
         long lastMinorCompactionTime = getGCThread().lastMinorCompactionTime;
         long lastMajorCompactionTime = getGCThread().lastMajorCompactionTime;
@@ -842,8 +838,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         File ledgerDir2 = tmpDirs.createNew("ledger", "test2");
         File journalDir = tmpDirs.createNew("journal", "test");
         String[] ledgerDirNames = new String[]{
-            ledgerDir1.getPath(),
-            ledgerDir2.getPath()
+                ledgerDir1.getPath(),
+                ledgerDir2.getPath()
         };
         conf.setLedgerDirNames(ledgerDirNames);
         conf.setJournalDirName(journalDir.getPath());
@@ -926,13 +922,13 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable minor compaction
-                c.setMinorCompactionThreshold(0.0f);
-                c.setGcWaitTime(60000);
-                c.setMinorCompactionInterval(120000);
-                c.setMajorCompactionInterval(240000);
-                return c;
-            });
+            // disable minor compaction
+            c.setMinorCompactionThreshold(0.0f);
+            c.setGcWaitTime(60000);
+            c.setMinorCompactionInterval(120000);
+            c.setMajorCompactionInterval(240000);
+            return c;
+        });
 
         long lastMinorCompactionTime = getGCThread().lastMinorCompactionTime;
         long lastMajorCompactionTime = getGCThread().lastMajorCompactionTime;
@@ -955,7 +951,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0,1,2].log) should be compacted
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertFalse("Found entry log file ([0,1,2].log that should have not been compacted in ledgerDirectory: "
-                      + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
         }
 
         // even entry log files are removed, we still can access entries for ledger2
@@ -1036,13 +1032,13 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable minor compaction
-                c.setMinorCompactionThreshold(0.0f);
-                c.setGcWaitTime(60000);
-                c.setMinorCompactionInterval(120000);
-                c.setMajorCompactionInterval(240000);
-                return c;
-            });
+            // disable minor compaction
+            c.setMinorCompactionThreshold(0.0f);
+            c.setGcWaitTime(60000);
+            c.setMinorCompactionInterval(120000);
+            c.setMajorCompactionInterval(240000);
+            return c;
+        });
 
         long lastMinorCompactionTime = getGCThread().lastMinorCompactionTime;
         long lastMajorCompactionTime = getGCThread().lastMajorCompactionTime;
@@ -1145,22 +1141,22 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                c.setForceReadOnlyBookie(true);
-                c.setIsForceGCAllowWhenNoSpace(true);
-                // disable minor compaction
-                c.setMinorCompactionThreshold(0.0f);
-                c.setGcWaitTime(60000);
-                c.setMinorCompactionInterval(120000);
-                c.setMajorCompactionInterval(240000);
-                c.setMinUsableSizeForEntryLogCreation(1);
-                c.setMinUsableSizeForIndexFileCreation(1);
-                c.setDiskUsageThreshold((1.0f - ((float) usableSpace / (float) totalSpace)) * 0.9f);
-                c.setDiskUsageWarnThreshold(0.0f);
-                return c;
-            });
+            c.setForceReadOnlyBookie(true);
+            c.setIsForceGCAllowWhenNoSpace(true);
+            // disable minor compaction
+            c.setMinorCompactionThreshold(0.0f);
+            c.setGcWaitTime(60000);
+            c.setMinorCompactionInterval(120000);
+            c.setMajorCompactionInterval(240000);
+            c.setMinUsableSizeForEntryLogCreation(1);
+            c.setMinUsableSizeForIndexFileCreation(1);
+            c.setDiskUsageThreshold((1.0f - ((float) usableSpace / (float) totalSpace)) * 0.9f);
+            c.setDiskUsageWarnThreshold(0.0f);
+            return c;
+        });
 
         assertFalse("There shouldn't be any writable ledgerDir",
-                    ((BookieImpl) serverByIndex(0).getBookie()).getLedgerDirsManager().hasWritableLedgerDirs());
+                ((BookieImpl) serverByIndex(0).getBookie()).getLedgerDirsManager().hasWritableLedgerDirs());
 
         long lastMinorCompactionTime = getGCThread().lastMinorCompactionTime;
         long lastMajorCompactionTime = getGCThread().lastMajorCompactionTime;
@@ -1227,7 +1223,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0,1,2].log) should not be compacted
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertTrue("Not Found entry log file ([1,2].log that should have been compacted in ledgerDirectory: "
-                     + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, false, 0, 1, 2));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, false, 0, 1, 2));
         }
     }
 
@@ -1237,7 +1233,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // create a ledger to write a few entries
         LedgerHandle alh = bkc.createLedger(NUM_BOOKIES, NUM_BOOKIES, digestType, "".getBytes());
         for (int i = 0; i < 3; i++) {
-           alh.addEntry(msg.getBytes());
+            alh.addEntry(msg.getBytes());
         }
         alh.close();
 
@@ -1267,9 +1263,9 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([1,2,3].log) should be compacted.
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertTrue("Not Found entry log file ([0].log that should have been compacted in ledgerDirectory: "
-                     + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0));
             assertFalse("Found entry log file ([1,2,3].log that should have not been compacted in ledgerDirectory: "
-                      + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 1, 2, 3));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 1, 2, 3));
         }
 
         // even entry log files are removed, we still can access entries for ledger1
@@ -1295,7 +1291,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         BookieImpl.checkDirectoryStructure(curDir);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
 
-        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_SIZE + 3 * (4 + ENTRY_SIZE));
+        conf.setEntryLogSizeLimit(DefaultEntryLogger.LOGFILE_HEADER_SIZE + 3 * (4 + ENTRY_SIZE));
         conf.setGcWaitTime(100);
         conf.setMinorCompactionThreshold(0.7f);
         conf.setMajorCompactionThreshold(0.0f);
@@ -1304,29 +1300,29 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         conf.setPageLimit(1);
 
         CheckpointSource checkpointSource = new CheckpointSource() {
-                AtomicInteger idGen = new AtomicInteger(0);
-                class MyCheckpoint implements CheckpointSource.Checkpoint {
-                    int id = idGen.incrementAndGet();
-                    @Override
-                    public int compareTo(CheckpointSource.Checkpoint o) {
-                        if (o == CheckpointSource.Checkpoint.MAX) {
-                            return -1;
-                        } else if (o == CheckpointSource.Checkpoint.MIN) {
-                            return 1;
-                        }
-                        return id - ((MyCheckpoint) o).id;
-                    }
-                }
-
+            AtomicInteger idGen = new AtomicInteger(0);
+            class MyCheckpoint implements CheckpointSource.Checkpoint {
+                int id = idGen.incrementAndGet();
                 @Override
-                public CheckpointSource.Checkpoint newCheckpoint() {
-                    return new MyCheckpoint();
+                public int compareTo(CheckpointSource.Checkpoint o) {
+                    if (o == CheckpointSource.Checkpoint.MAX) {
+                        return -1;
+                    } else if (o == CheckpointSource.Checkpoint.MIN) {
+                        return 1;
+                    }
+                    return id - ((MyCheckpoint) o).id;
                 }
+            }
 
-                public void checkpointComplete(CheckpointSource.Checkpoint checkpoint, boolean compact)
-                        throws IOException {
-                }
-            };
+            @Override
+            public CheckpointSource.Checkpoint newCheckpoint() {
+                return new MyCheckpoint();
+            }
+
+            public void checkpointComplete(CheckpointSource.Checkpoint checkpoint, boolean compact)
+                    throws IOException {
+            }
+        };
         final byte[] key = "foobar".getBytes();
         File log0 = new File(curDir, "0.log");
         LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs(),
@@ -1334,12 +1330,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         assertFalse("Log shouldnt exist", log0.exists());
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
         storage.initialize(
-            conf,
-            manager,
-            dirs,
-            dirs,
-            NullStatsLogger.INSTANCE,
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                manager,
+                dirs,
+                dirs,
+                NullStatsLogger.INSTANCE,
+                UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
         storage.setCheckpointer(Checkpointer.NULL);
 
@@ -1362,11 +1358,11 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         storage = new InterleavedLedgerStorage();
         storage.initialize(
-            conf,
-            manager,
-            dirs, dirs,
-            NullStatsLogger.INSTANCE,
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                manager,
+                dirs, dirs,
+                NullStatsLogger.INSTANCE,
+                UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
         storage.setCheckpointer(Checkpointer.NULL);
 
@@ -1387,12 +1383,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         storage = new InterleavedLedgerStorage();
         storage.initialize(
-            conf,
-            manager,
-            dirs,
-            dirs,
-            NullStatsLogger.INSTANCE,
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                manager,
+                dirs,
+                dirs,
+                NullStatsLogger.INSTANCE,
+                UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
         storage.setCheckpointer(Checkpointer.NULL);
 
@@ -1457,69 +1453,69 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
     private LedgerManager getLedgerManager(final Set<Long> ledgers) {
         LedgerManager manager = new LedgerManager() {
-                @Override
-                public CompletableFuture<Versioned<LedgerMetadata>> createLedgerMetadata(long lid,
-                                                                                         LedgerMetadata metadata) {
-                    unsupported();
-                    return null;
-                }
-                @Override
-                public CompletableFuture<Void> removeLedgerMetadata(long ledgerId, Version version) {
-                    unsupported();
-                    return null;
-                }
-                @Override
-                public CompletableFuture<Versioned<LedgerMetadata>> readLedgerMetadata(long ledgerId) {
-                    unsupported();
-                    return null;
-                }
-                @Override
-                public CompletableFuture<Versioned<LedgerMetadata>> writeLedgerMetadata(long ledgerId,
-                                                                                        LedgerMetadata metadata,
-                                                                                        Version currentVersion) {
-                    unsupported();
-                    return null;
-                }
-                @Override
-                public void asyncProcessLedgers(Processor<Long> processor,
-                                                AsyncCallback.VoidCallback finalCb,
-                        Object context, int successRc, int failureRc) {
-                    unsupported();
-                }
-                @Override
-                public void registerLedgerMetadataListener(long ledgerId,
-                        LedgerMetadataListener listener) {
-                    unsupported();
-                }
-                @Override
-                public void unregisterLedgerMetadataListener(long ledgerId,
-                        LedgerMetadataListener listener) {
-                    unsupported();
-                }
-                @Override
-                public void close() throws IOException {}
+            @Override
+            public CompletableFuture<Versioned<LedgerMetadata>> createLedgerMetadata(long lid,
+                                                                                     LedgerMetadata metadata) {
+                unsupported();
+                return null;
+            }
+            @Override
+            public CompletableFuture<Void> removeLedgerMetadata(long ledgerId, Version version) {
+                unsupported();
+                return null;
+            }
+            @Override
+            public CompletableFuture<Versioned<LedgerMetadata>> readLedgerMetadata(long ledgerId) {
+                unsupported();
+                return null;
+            }
+            @Override
+            public CompletableFuture<Versioned<LedgerMetadata>> writeLedgerMetadata(long ledgerId,
+                                                                                    LedgerMetadata metadata,
+                                                                                    Version currentVersion) {
+                unsupported();
+                return null;
+            }
+            @Override
+            public void asyncProcessLedgers(Processor<Long> processor,
+                                            AsyncCallback.VoidCallback finalCb,
+                                            Object context, int successRc, int failureRc) {
+                unsupported();
+            }
+            @Override
+            public void registerLedgerMetadataListener(long ledgerId,
+                                                       LedgerMetadataListener listener) {
+                unsupported();
+            }
+            @Override
+            public void unregisterLedgerMetadataListener(long ledgerId,
+                                                         LedgerMetadataListener listener) {
+                unsupported();
+            }
+            @Override
+            public void close() throws IOException {}
 
-                void unsupported() {
-                    LOG.error("Unsupported operation called", new Exception());
-                    throw new RuntimeException("Unsupported op");
-                }
+            void unsupported() {
+                LOG.error("Unsupported operation called", new Exception());
+                throw new RuntimeException("Unsupported op");
+            }
 
-                @Override
-                public LedgerRangeIterator getLedgerRanges(long zkOpTimeoutMs) {
-                    final AtomicBoolean hasnext = new AtomicBoolean(true);
-                    return new LedgerManager.LedgerRangeIterator() {
-                        @Override
-                        public boolean hasNext() throws IOException {
-                            return hasnext.get();
-                        }
-                        @Override
-                        public LedgerManager.LedgerRange next() throws IOException {
-                            hasnext.set(false);
-                            return new LedgerManager.LedgerRange(ledgers);
-                        }
-                    };
-                 }
-            };
+            @Override
+            public LedgerRangeIterator getLedgerRanges(long zkOpTimeoutMs) {
+                final AtomicBoolean hasnext = new AtomicBoolean(true);
+                return new LedgerManager.LedgerRangeIterator() {
+                    @Override
+                    public boolean hasNext() throws IOException {
+                        return hasnext.get();
+                    }
+                    @Override
+                    public LedgerManager.LedgerRange next() throws IOException {
+                        hasnext.set(false);
+                        return new LedgerManager.LedgerRange(ledgers);
+                    }
+                };
+            }
+        };
         return manager;
     }
 
@@ -1550,17 +1546,17 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
             @Override
             public void checkpointComplete(Checkpoint checkpoint,
-                    boolean compact) throws IOException {
+                                           boolean compact) throws IOException {
             }
         };
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
         storage.initialize(
-            conf,
-            manager,
-            dirs,
-            dirs,
-            NullStatsLogger.INSTANCE,
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                manager,
+                dirs,
+                dirs,
+                NullStatsLogger.INSTANCE,
+                UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(checkpointSource);
         storage.setCheckpointer(Checkpointer.NULL);
 
@@ -1569,80 +1565,6 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // shouldn't throw exception
         storage.gcThread.doCompactEntryLogs(threshold, limit);
-    }
-
-    /**
-     * Test extractMetaFromEntryLogs optimized method to avoid excess memory usage.
-     */
-    public void testExtractMetaFromEntryLogs() throws Exception {
-        // restart bookies
-        restartBookies(c -> {
-                // Always run this test with Throttle enabled.
-                c.setIsThrottleByBytes(true);
-                return c;
-            });
-        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
-        File tmpDir = tmpDirs.createNew("bkTest", ".dir");
-        File curDir = BookieImpl.getCurrentDirectory(tmpDir);
-        BookieImpl.checkDirectoryStructure(curDir);
-        conf.setLedgerDirNames(new String[] { tmpDir.toString() });
-
-        LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs(),
-            new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()));
-        final Set<Long> ledgers = Collections
-            .newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
-
-        LedgerManager manager = getLedgerManager(ledgers);
-
-        CheckpointSource checkpointSource = new CheckpointSource() {
-
-            @Override
-            public Checkpoint newCheckpoint() {
-                return null;
-            }
-
-            @Override
-            public void checkpointComplete(Checkpoint checkpoint,
-                                           boolean compact) throws IOException {
-            }
-        };
-        InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
-        storage.initialize(conf, manager, dirs, dirs,
-                           NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
-        storage.setCheckpointSource(checkpointSource);
-        storage.setCheckpointer(Checkpointer.NULL);
-
-
-        for (long ledger = 0; ledger <= 10; ledger++) {
-            ledgers.add(ledger);
-            for (int entry = 1; entry <= 50; entry++) {
-                try {
-                    storage.addEntry(genEntry(ledger, entry, ENTRY_SIZE));
-                } catch (IOException e) {
-                    //ignore exception on failure to add entry.
-                }
-            }
-        }
-
-        storage.flush();
-        storage.shutdown();
-
-        storage = new InterleavedLedgerStorage();
-        storage.initialize(conf, manager, dirs, dirs, NullStatsLogger.INSTANCE, UnpooledByteBufAllocator.DEFAULT);
-        storage.setCheckpointSource(checkpointSource);
-        storage.setCheckpointer(Checkpointer.NULL);
-
-        long startingEntriesCount = storage.gcThread.entryLogger.getLeastUnflushedLogId()
-            - storage.gcThread.scannedLogId;
-        LOG.info("The old Log Entry count is: " + startingEntriesCount);
-
-        Map<Long, EntryLogMetadata> entryLogMetaData = new HashMap<>();
-        long finalEntriesCount = storage.gcThread.entryLogger.getLeastUnflushedLogId()
-            - storage.gcThread.scannedLogId;
-        LOG.info("The latest Log Entry count is: " + finalEntriesCount);
-
-        assertTrue("The GC did not clean up entries...", startingEntriesCount != finalEntriesCount);
-        assertTrue("Entries Count is zero", finalEntriesCount == 0);
     }
 
     private ByteBuf genEntry(long ledger, long entry, int size) {
@@ -1688,7 +1610,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
             @Override
             public void checkpointComplete(Checkpoint checkPoint, boolean compact)
-                throws IOException {
+                    throws IOException {
                 // Do nothing.
             }
         };
@@ -1701,12 +1623,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage();
         TestStatsProvider stats = new TestStatsProvider();
         storage.initialize(
-            conf,
-            lm,
-            dirManager,
-            dirManager,
-            stats.getStatsLogger("storage"),
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                lm,
+                dirManager,
+                dirManager,
+                stats.getStatsLogger("storage"),
+                UnpooledByteBufAllocator.DEFAULT);
         storage.setCheckpointSource(cp);
         storage.setCheckpointer(Checkpointer.NULL);
 
@@ -1728,7 +1650,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         long startTime = System.currentTimeMillis();
         majorCompactions = stats.getCounter("storage.gc." + MAJOR_COMPACTION_COUNT).get().intValue();
         Thread.sleep(conf.getMajorCompactionInterval() * 1000
-                   + conf.getGcWaitTime());
+                + conf.getGcWaitTime());
         assertTrue("major compaction triggered while suspended",
                 storage.gcThread.lastMajorCompactionTime < startTime);
         assertTrue("major compaction triggered while suspended",
@@ -1748,7 +1670,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         startTime = System.currentTimeMillis();
         minorCompactions = stats.getCounter("storage.gc." + MINOR_COMPACTION_COUNT).get().intValue();
         Thread.sleep(conf.getMajorCompactionInterval() * 1000
-                   + conf.getGcWaitTime());
+                + conf.getGcWaitTime());
         assertTrue("minor compaction triggered while suspended",
                 storage.gcThread.lastMinorCompactionTime < startTime);
         assertTrue("minor compaction triggered while suspended",
@@ -1783,12 +1705,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable compaction
-                c.setMinorCompactionThreshold(0.0f);
-                c.setMajorCompactionThreshold(0.0f);
-                c.setGcWaitTime(600000);
-                return c;
-            });
+            // disable compaction
+            c.setMinorCompactionThreshold(0.0f);
+            c.setMajorCompactionThreshold(0.0f);
+            c.setGcWaitTime(600000);
+            return c;
+        });
 
 
 
@@ -1812,7 +1734,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0,1,2].log) should not be compacted because of partial flush throw IOException
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertTrue("Entry log file ([0,1,2].log should not be compacted in ledgerDirectory: "
-                + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
         }
 
         // entries should be available
@@ -1830,7 +1752,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // compaction worker should recover partial flushed index and delete [0,1,2].log
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertFalse("Entry log file ([0,1,2].log should have been compacted in ledgerDirectory: "
-                + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
         }
 
         // even entry log files are removed, we still can access entries for ledger1
@@ -1849,12 +1771,12 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // disable compaction
-                c.setMinorCompactionThreshold(0.0f);
-                c.setMajorCompactionThreshold(0.0f);
-                c.setUseTransactionalCompaction(true);
-                return c;
-            });
+            // disable compaction
+            c.setMinorCompactionThreshold(0.0f);
+            c.setMajorCompactionThreshold(0.0f);
+            c.setUseTransactionalCompaction(true);
+            return c;
+        });
 
         // remove ledger2 and ledger3
         bkc.deleteLedger(lhs[1].getId());
@@ -1862,7 +1784,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         LOG.info("Finished deleting the ledgers contains most entries.");
         Thread.sleep(baseConf.getMajorCompactionInterval() * 1000
-            + baseConf.getGcWaitTime());
+                + baseConf.getGcWaitTime());
         BookieImpl bookie = (BookieImpl) serverByIndex(0).getBookie();
         InterleavedLedgerStorage storage = (InterleavedLedgerStorage) bookie.ledgerStorage;
 
@@ -1871,7 +1793,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         ledgerDirs.forEach(file -> usageBeforeCompaction.add(getDirectorySpaceUsage(file)));
 
         MockTransactionalEntryLogCompactor partialCompactionWorker = new MockTransactionalEntryLogCompactor(
-            ((InterleavedLedgerStorage) bookie.ledgerStorage).gcThread);
+                ((InterleavedLedgerStorage) bookie.ledgerStorage).gcThread);
 
         for (long logId = 0; logId < 5; logId++) {
             EntryLogMetadata meta = storage.entryLogger.getEntryLogMetadata(logId);
@@ -1881,7 +1803,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([0-4].log) should not be compacted because of failure in flush compaction log
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertTrue("Entry log file ([0,1,2].log should not be compacted in ledgerDirectory: "
-                + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2, 3, 4));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2, 3, 4));
         }
         // even entry log files are removed, we still can access entries for ledger1
         // since those entries has been compacted to new entry log
@@ -1898,11 +1820,11 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         // restart bookies
         restartBookies(c -> {
-                // now enable normal compaction
-                c.setMajorCompactionThreshold(0.5f);
-                c.setMajorCompactionMaxTimeMillis(5000);
-                return c;
-            });
+            // now enable normal compaction
+            c.setMajorCompactionThreshold(0.5f);
+            c.setMajorCompactionMaxTimeMillis(5000);
+            return c;
+        });
 
         getGCThread().enableForceGC();
         getGCThread().triggerGC().get();
@@ -1913,7 +1835,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         // compaction worker should compact [0-4].log
         for (File ledgerDirectory : bookieLedgerDirs()) {
             assertFalse("Entry log file ([0,1,2].log should have been compacted in ledgerDirectory: "
-                + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2, 3, 4));
+                    + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2, 3, 4));
         }
 
         // even entry log files are removed, we still can access entries for ledger1
@@ -1933,7 +1855,7 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
         Set<File> compactedLogFiles = new HashSet<>();
         for (File ledgerDirectory : bookieLedgerDirs()) {
             File[] files = BookieImpl.getCurrentDirectory(ledgerDirectory).listFiles(
-                file -> file.getName().endsWith(COMPACTED_SUFFIX));
+                    file -> file.getName().endsWith(COMPACTED_SUFFIX));
             if (files != null) {
                 Collections.addAll(compactedLogFiles, files);
             }
@@ -1945,8 +1867,8 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         public MockTransactionalEntryLogCompactor(GarbageCollectorThread gcThread) {
             super(gcThread.conf,
-                  gcThread.entryLogger,
-                  gcThread.ledgerStorage,
+                    gcThread.entryLogger,
+                    gcThread.ledgerStorage,
                     (long entry) -> {
                         try {
                             gcThread.removeEntryLog(entry);
@@ -1956,21 +1878,21 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
                     });
         }
 
-        synchronized void compactWithIndexFlushFailure(EntryLogMetadata metadata) {
+        synchronized void compactWithIndexFlushFailure(EntryLogMetadata metadata) throws IOException {
             LOG.info("Compacting entry log {}.", metadata.getEntryLogId());
-            CompactionPhase scanEntryLog = new ScanEntryLogPhase(metadata);
+            CompactionEntryLog compactionLog = entryLogger.newCompactionLog(metadata.getEntryLogId());
+
+            CompactionPhase scanEntryLog = new ScanEntryLogPhase(metadata, compactionLog);
             if (!scanEntryLog.run()) {
                 LOG.info("Compaction for {} end in ScanEntryLogPhase.", metadata.getEntryLogId());
                 return;
             }
-            File compactionLogFile = entryLogger.getCurCompactionLogFile();
-            CompactionPhase flushCompactionLog = new FlushCompactionLogPhase(metadata.getEntryLogId());
+            CompactionPhase flushCompactionLog = new FlushCompactionLogPhase(compactionLog);
             if (!flushCompactionLog.run()) {
                 LOG.info("Compaction for {} end in FlushCompactionLogPhase.", metadata.getEntryLogId());
                 return;
             }
-            File compactedLogFile = getCompactedLogFile(compactionLogFile, metadata.getEntryLogId());
-            CompactionPhase partialFlushIndexPhase = new PartialFlushIndexPhase(compactedLogFile);
+            CompactionPhase partialFlushIndexPhase = new PartialFlushIndexPhase(compactionLog);
             if (!partialFlushIndexPhase.run()) {
                 LOG.info("Compaction for {} end in PartialFlushIndexPhase.", metadata.getEntryLogId());
                 return;
@@ -1979,21 +1901,21 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
             LOG.info("Compacted entry log : {}.", metadata.getEntryLogId());
         }
 
-        synchronized void compactWithLogFlushFailure(EntryLogMetadata metadata) {
+        synchronized void compactWithLogFlushFailure(EntryLogMetadata metadata) throws IOException {
             LOG.info("Compacting entry log {}", metadata.getEntryLogId());
-            CompactionPhase scanEntryLog = new ScanEntryLogPhase(metadata);
+            CompactionEntryLog compactionLog = entryLogger.newCompactionLog(metadata.getEntryLogId());
+
+            CompactionPhase scanEntryLog = new ScanEntryLogPhase(metadata, compactionLog);
             if (!scanEntryLog.run()) {
                 LOG.info("Compaction for {} end in ScanEntryLogPhase.", metadata.getEntryLogId());
                 return;
             }
-            File compactionLogFile = entryLogger.getCurCompactionLogFile();
-            CompactionPhase logFlushFailurePhase = new LogFlushFailurePhase(metadata.getEntryLogId());
+            CompactionPhase logFlushFailurePhase = new LogFlushFailurePhase(compactionLog);
             if (!logFlushFailurePhase.run()) {
                 LOG.info("Compaction for {} end in FlushCompactionLogPhase.", metadata.getEntryLogId());
                 return;
             }
-            File compactedLogFile = getCompactedLogFile(compactionLogFile, metadata.getEntryLogId());
-            CompactionPhase updateIndex = new UpdateIndexPhase(compactedLogFile);
+            CompactionPhase updateIndex = new UpdateIndexPhase(compactionLog);
             if (!updateIndex.run()) {
                 LOG.info("Compaction for entry log {} end in UpdateIndexPhase.", metadata.getEntryLogId());
                 return;
@@ -2004,42 +1926,32 @@ public abstract class CompactionTest extends BookKeeperClusterTestCase {
 
         private class PartialFlushIndexPhase extends UpdateIndexPhase {
 
-            public PartialFlushIndexPhase(File compactedLogFile) {
-                super(compactedLogFile);
+            public PartialFlushIndexPhase(CompactionEntryLog compactionLog) {
+                super(compactionLog);
             }
 
             @Override
             void start() throws IOException {
-                if (compactedLogFile != null && compactedLogFile.exists()) {
-                    File dir = compactedLogFile.getParentFile();
-                    String compactedFilename = compactedLogFile.getName();
-                    // create a hard link "x.log" for file "x.log.y.compacted"
-                    this.newEntryLogFile = new File(dir, compactedFilename.substring(0,
-                                compactedFilename.indexOf(".log") + 4));
-                    File hardlinkFile = new File(dir, newEntryLogFile.getName());
-                    if (!hardlinkFile.exists()) {
-                        HardLink.createHardLink(compactedLogFile, hardlinkFile);
-                    }
-                    assertTrue(offsets.size() > 1);
-                    // only flush index for one entry location
-                    EntryLocation el = offsets.get(0);
-                    ledgerStorage.updateEntriesLocations(offsets);
-                    ledgerStorage.flushEntriesLocationsIndex();
-                    throw new IOException("Flush ledger index encounter exception");
-                }
+                compactionLog.makeAvailable();
+                assertTrue(offsets.size() > 1);
+                // only flush index for one entry location
+                EntryLocation el = offsets.get(0);
+                ledgerStorage.updateEntriesLocations(offsets);
+                ledgerStorage.flushEntriesLocationsIndex();
+                throw new IOException("Flush ledger index encounter exception");
             }
         }
 
         private class LogFlushFailurePhase extends FlushCompactionLogPhase {
 
-            LogFlushFailurePhase(long compactingLogId) {
-                super(compactingLogId);
+            LogFlushFailurePhase(CompactionEntryLog compactionEntryLog) {
+                super(compactionEntryLog);
             }
 
             @Override
             void start() throws IOException {
                 // flush the current compaction log
-                entryLogger.flushCompactionLog();
+                compactionLog.flush();
                 throw new IOException("Encounter IOException when trying to flush compaction log");
             }
         }

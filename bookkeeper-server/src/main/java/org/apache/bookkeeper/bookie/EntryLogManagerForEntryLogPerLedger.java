@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -36,9 +36,7 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.cache.RemovalCause;
 import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
-
 import io.netty.buffer.ByteBuf;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
@@ -54,10 +52,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-
 import lombok.extern.slf4j.Slf4j;
-
-import org.apache.bookkeeper.bookie.EntryLogger.BufferedLogChannel;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger.BufferedLogChannel;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
@@ -119,35 +115,35 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
     }
 
     @StatsDoc(
-        name = ENTRYLOGGER_SCOPE,
-        category = CATEGORY_SERVER,
-        help = "EntryLogger related stats"
+            name = ENTRYLOGGER_SCOPE,
+            category = CATEGORY_SERVER,
+            help = "EntryLogger related stats"
     )
     class EntryLogsPerLedgerCounter {
 
         @StatsDoc(
-            name = NUM_OF_WRITE_ACTIVE_LEDGERS,
-            help = "Number of write active ledgers"
+                name = NUM_OF_WRITE_ACTIVE_LEDGERS,
+                help = "Number of write active ledgers"
         )
         private final Counter numOfWriteActiveLedgers;
         @StatsDoc(
-            name = NUM_OF_WRITE_LEDGERS_REMOVED_CACHE_EXPIRY,
-            help = "Number of write ledgers removed after cache expiry"
+                name = NUM_OF_WRITE_LEDGERS_REMOVED_CACHE_EXPIRY,
+                help = "Number of write ledgers removed after cache expiry"
         )
         private final Counter numOfWriteLedgersRemovedCacheExpiry;
         @StatsDoc(
-            name = NUM_OF_WRITE_LEDGERS_REMOVED_CACHE_MAXSIZE,
-            help = "Number of write ledgers removed due to reach max cache size"
+                name = NUM_OF_WRITE_LEDGERS_REMOVED_CACHE_MAXSIZE,
+                help = "Number of write ledgers removed due to reach max cache size"
         )
         private final Counter numOfWriteLedgersRemovedCacheMaxSize;
         @StatsDoc(
-            name = NUM_LEDGERS_HAVING_MULTIPLE_ENTRYLOGS,
-            help = "Number of ledgers having multiple entry logs"
+                name = NUM_LEDGERS_HAVING_MULTIPLE_ENTRYLOGS,
+                help = "Number of ledgers having multiple entry logs"
         )
         private final Counter numLedgersHavingMultipleEntrylogs;
         @StatsDoc(
-            name = ENTRYLOGS_PER_LEDGER,
-            help = "The distribution of number of entry logs per ledger"
+                name = ENTRYLOGS_PER_LEDGER,
+                help = "The distribution of number of entry logs per ledger"
         )
         private final OpStatsLogger entryLogsPerLedger;
         /*
@@ -259,7 +255,7 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
      */
     private final ConcurrentLongHashMap<BufferedLogChannelWithDirInfo> replicaOfCurrentLogChannels;
     private final CacheLoader<Long, EntryLogAndLockTuple> entryLogAndLockTupleCacheLoader;
-    private final EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
+    private final DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
     private final int entrylogMapAccessExpiryTimeInSeconds;
     private final int maximumNumberOfActiveEntryLogs;
     private final int entryLogPerLedgerCounterLimitsMultFactor;
@@ -269,9 +265,10 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
     final EntryLogsPerLedgerCounter entryLogsPerLedgerCounter;
 
     EntryLogManagerForEntryLogPerLedger(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
-            EntryLoggerAllocator entryLoggerAllocator, List<EntryLogger.EntryLogListener> listeners,
-            EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, StatsLogger statsLogger)
-            throws IOException {
+                                        EntryLoggerAllocator entryLoggerAllocator,
+                                        List<DefaultEntryLogger.EntryLogListener> listeners,
+                                        DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus,
+                                        StatsLogger statsLogger) throws IOException {
         super(conf, ledgerDirsManager, entryLoggerAllocator, listeners);
         this.recentlyCreatedEntryLogsStatus = recentlyCreatedEntryLogsStatus;
         this.rotatedLogChannels = new CopyOnWriteArrayList<BufferedLogChannel>();
@@ -337,8 +334,10 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
      */
     private void onCacheEntryRemoval(RemovalNotification<Long, EntryLogAndLockTuple> removedLedgerEntryLogMapEntry) {
         Long ledgerId = removedLedgerEntryLogMapEntry.getKey();
-        log.debug("LedgerId {} is being evicted from the cache map because of {}", ledgerId,
-                removedLedgerEntryLogMapEntry.getCause());
+        if (log.isDebugEnabled()) {
+            log.debug("LedgerId {} is being evicted from the cache map because of {}", ledgerId,
+                    removedLedgerEntryLogMapEntry.getCause());
+        }
         EntryLogAndLockTuple entryLogAndLockTuple = removedLedgerEntryLogMapEntry.getValue();
         if (entryLogAndLockTuple == null) {
             log.error("entryLogAndLockTuple is not supposed to be null in entry removal listener for ledger : {}",
@@ -671,8 +670,8 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
                     logChannel.flushAndForceWriteIfRegularFlush(false);
                 }
                 createNewLog(ledgerId,
-                    ": diskFull = " + diskFull + ", allDisksFull = " + allDisksFull
-                        + ", reachEntryLogLimit = " + reachEntryLogLimit + ", logChannel = " + logChannel);
+                        ": diskFull = " + diskFull + ", allDisksFull = " + allDisksFull
+                                + ", reachEntryLogLimit = " + reachEntryLogLimit + ", logChannel = " + logChannel);
             }
 
             return getCurrentLogForLedger(ledgerId);

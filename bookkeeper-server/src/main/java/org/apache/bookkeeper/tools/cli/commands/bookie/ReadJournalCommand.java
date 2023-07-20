@@ -81,7 +81,7 @@ public class ReadJournalCommand extends BookieCommand<ReadJournalCommand.ReadJou
         private boolean msg;
 
         @Parameter(names = { "-d", "--dir" }, description = "Journal directory (needed if more than one journal "
-                                                                + "configured)")
+                + "configured)")
         private String dir = DEFAULT;
 
         @Parameter(names = {"-id", "--journalid"}, description = "Journal Id")
@@ -180,19 +180,19 @@ public class ReadJournalCommand extends BookieCommand<ReadJournalCommand.ReadJou
             int idx = 0;
             for (File journalDir : conf.getJournalDirs()) {
                 journals.add(new Journal(idx++, new File(journalDir, BookKeeperConstants.CURRENT_DIR), conf,
-                         new LedgerDirsManager(conf, conf.getLedgerDirs(),
-                               new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()))));
+                        new LedgerDirsManager(conf, conf.getLedgerDirs(),
+                                new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()))));
             }
         }
         return journals;
     }
 
     /**
-      * Scan a journal file.
-      *
-      * @param journalId Journal File Id
-      * @param printMsg Whether printing the entry data.
-      */
+     * Scan a journal file.
+     *
+     * @param journalId Journal File Id
+     * @param printMsg Whether printing the entry data.
+     */
     private void scanJournal(Journal journal, long journalId, final boolean printMsg) throws IOException {
         LOG.info("Scan journal {} ({}.txn)", journalId, Long.toHexString(journalId));
         scanJournal(journal, journalId, new Journal.JournalScanner() {
@@ -205,12 +205,12 @@ public class ReadJournalCommand extends BookieCommand<ReadJournalCommand.ReadJou
                     printJournalVersion = true;
                 }
                 FormatUtil
-                    .formatEntry(offset, Unpooled.wrappedBuffer(entry), printMsg, ledgerIdFormatter, entryFormatter);
+                        .formatEntry(offset, Unpooled.wrappedBuffer(entry), printMsg, ledgerIdFormatter, entryFormatter);
             }
         });
     }
 
     private void scanJournal(Journal journal, long journalId, Journal.JournalScanner scanner) throws IOException {
-        journal.scanJournal(journalId, 0L, scanner);
+        journal.scanJournal(journalId, 0L, scanner, false);
     }
 }

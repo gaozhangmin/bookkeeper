@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -27,13 +27,12 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
-
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
@@ -49,7 +48,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.StampedLock;
-
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.Bookie.NoEntryException;
 import org.apache.bookkeeper.bookie.BookieException;
@@ -59,7 +57,6 @@ import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.Checkpointer;
 import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
 import org.apache.bookkeeper.bookie.EntryLocation;
-import org.apache.bookkeeper.bookie.EntryLogger;
 import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
 import org.apache.bookkeeper.bookie.GarbageCollectorThread;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
@@ -68,6 +65,7 @@ import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerEntryPage;
 import org.apache.bookkeeper.bookie.StateManager;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorageDataFormats.LedgerData;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorage.Batch;
 import org.apache.bookkeeper.common.util.Watcher;
@@ -134,6 +132,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     private final long writeCacheMaxSize;
     private final long readCacheMaxSize;
     private final int readAheadCacheBatchSize;
+    private final long readAheadCacheBatchBytesSize;
 
     private final long maxThrottleTimeNanos;
 
@@ -145,24 +144,29 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     private final Counter flushExecutorTime;
     private final boolean singleLedgerDirs;
+    private final LedgerDirsManager ledgerDirsManager;
 
     public SingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
-            LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, StatsLogger statsLogger,
-            ByteBufAllocator allocator, ScheduledExecutorService gcExecutor, long writeCacheSize, long readCacheSize,
-            int readAheadCacheBatchSize) throws IOException {
+                                          LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
+                                          EntryLogger entryLogger, StatsLogger statsLogger, ByteBufAllocator allocator,
+                                          long writeCacheSize, long readCacheSize, int readAheadCacheBatchSize,
+                                          long readAheadCacheBatchBytesSize)
+            throws IOException {
         checkArgument(ledgerDirsManager.getAllLedgerDirs().size() == 1,
                 "Db implementation only allows for one storage dir");
 
         String ledgerBaseDir = ledgerDirsManager.getAllLedgerDirs().get(0).getPath();
         // indexBaseDir default use ledgerBaseDir
         String indexBaseDir = ledgerBaseDir;
-        if (CollectionUtils.isEmpty(indexDirsManager.getAllLedgerDirs())) {
-            log.info("indexDir is not specified, use default, creating single directory db ledger storage on {}",
+        if (CollectionUtils.isEmpty(indexDirsManager.getAllLedgerDirs())
+                || ledgerBaseDir.equals(indexDirsManager.getAllLedgerDirs().get(0).getPath())) {
+            log.info("indexDir is equals ledgerBaseDir, creating single directory db ledger storage on {}",
                     indexBaseDir);
         } else {
             // if indexDir is specified, set new value
             indexBaseDir = indexDirsManager.getAllLedgerDirs().get(0).getPath();
-            log.info("indexDir is specified, creating single directory db ledger storage on {}", indexBaseDir);
+            log.info("indexDir is specified a separate dir, creating single directory db ledger storage on {}",
+                    indexBaseDir);
         }
 
         StatsLogger ledgerIndexDirStatsLogger = statsLogger
@@ -176,6 +180,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
         readCacheMaxSize = readCacheSize;
         this.readAheadCacheBatchSize = readAheadCacheBatchSize;
+        this.readAheadCacheBatchBytesSize = readAheadCacheBatchBytesSize;
 
         // Do not attempt to perform read-ahead more than half the total size of the cache
         maxReadAheadBytesSize = readCacheMaxSize / 2;
@@ -199,8 +204,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 TransientLedgerInfo.LEDGER_INFO_CACHING_TIME_MINUTES,
                 TransientLedgerInfo.LEDGER_INFO_CACHING_TIME_MINUTES, TimeUnit.MINUTES);
 
-        entryLogger = new EntryLogger(conf, ledgerDirsManager, null, statsLogger, allocator);
-        gcThread = new GarbageCollectorThread(conf, ledgerManager, ledgerDirsManager, this, ledgerIndexDirStatsLogger);
+        this.entryLogger = entryLogger;
+        gcThread = new GarbageCollectorThread(conf,
+                ledgerManager, ledgerDirsManager, this, entryLogger, ledgerIndexDirStatsLogger);
 
         dbLedgerStorageStats = new DbLedgerStorageStats(
             ledgerIndexDirStatsLogger,
@@ -216,13 +222,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             ThreadRegistry.register(dbStoragerExecutorName, 0);
             // ensure the metric gets registered on start-up as this thread only executes
             // when the write cache is full which may not happen or not for a long time
-            flushExecutorTime.add(0);
+            flushExecutorTime.addLatency(0, TimeUnit.NANOSECONDS);
         });
 
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        if (!ledgerBaseDir.equals(indexBaseDir)) {
-            indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        }
+        this.ledgerDirsManager = ledgerDirsManager;
     }
 
     @Override
@@ -304,12 +308,40 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     }
 
     @Override
+    public void entryLocationCompact() {
+        if (entryLocationIndex.isCompacting()) {
+            // RocksDB already running compact.
+            return;
+        }
+        cleanupExecutor.execute(() -> {
+            // There can only be one single cleanup task running because the cleanupExecutor
+            // is single-threaded
+            try {
+                log.info("Trigger entry location index RocksDB compact.");
+                entryLocationIndex.compact();
+            } catch (Throwable t) {
+                log.warn("Failed to trigger entry location index RocksDB compact", t);
+            }
+        });
+    }
+
+    @Override
+    public boolean isEntryLocationCompacting() {
+        return entryLocationIndex.isCompacting();
+    }
+
+    @Override
+    public List<String> getEntryLocationDBPath() {
+        return Lists.newArrayList(entryLocationIndex.getEntryLocationDBPath());
+    }
+
+    @Override
     public void shutdown() throws InterruptedException {
         try {
             flush();
 
             gcThread.shutdown();
-            entryLogger.shutdown();
+            entryLogger.close();
 
             cleanupExecutor.shutdown();
             cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS);
@@ -494,7 +526,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                         } catch (IOException e) {
                             log.error("Error during flush", e);
                         } finally {
-                            flushExecutorTime.add(MathUtils.elapsedNanos(startTime));
+                            flushExecutorTime.addLatency(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
                         }
                     });
             }
@@ -601,14 +633,16 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 throw new NoEntryException(ledgerId, entryId);
             }
         } finally {
-            dbLedgerStorageStats.getReadFromLocationIndexTime().add(MathUtils.elapsedNanos(locationIndexStartNano));
+            dbLedgerStorageStats.getReadFromLocationIndexTime().addLatency(
+                    MathUtils.elapsedNanos(locationIndexStartNano), TimeUnit.NANOSECONDS);
         }
 
         long readEntryStartNano = MathUtils.nowInNano();
         try {
             entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
         } finally {
-            dbLedgerStorageStats.getReadFromEntryLogTime().add(MathUtils.elapsedNanos(readEntryStartNano));
+            dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+                    MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
         }
 
         readCache.put(ledgerId, entryId, entry);
@@ -630,11 +664,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             long currentEntryLogId = firstEntryLogId;
             long currentEntryLocation = firstEntryLocation;
 
-            while (count < readAheadCacheBatchSize
-                    && size < maxReadAheadBytesSize
-                    && currentEntryLogId == firstEntryLogId) {
-                ByteBuf entry = entryLogger.internalReadEntry(orginalLedgerId, firstEntryId, currentEntryLocation,
-                        false /* validateEntry */);
+            while (chargeReadAheadCache(count, size) && currentEntryLogId == firstEntryLogId) {
+                ByteBuf entry = entryLogger.readEntry(orginalLedgerId,
+                        firstEntryId, currentEntryLocation);
 
                 try {
                     long currentEntryLedgerId = entry.getLong(0);
@@ -655,7 +687,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                     currentEntryLocation += 4 + entry.readableBytes();
                     currentEntryLogId = currentEntryLocation >> 32;
                 } finally {
-                    entry.release();
+                    ReferenceCountUtil.release(entry);
                 }
             }
         } catch (Exception e) {
@@ -665,8 +697,20 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         } finally {
             dbLedgerStorageStats.getReadAheadBatchCountStats().registerSuccessfulValue(count);
             dbLedgerStorageStats.getReadAheadBatchSizeStats().registerSuccessfulValue(size);
-            dbLedgerStorageStats.getReadAheadTime().add(MathUtils.elapsedNanos(readAheadStartNano));
+            dbLedgerStorageStats.getReadAheadTime().addLatency(
+                    MathUtils.elapsedNanos(readAheadStartNano), TimeUnit.NANOSECONDS);
         }
+    }
+
+    protected boolean chargeReadAheadCache(int currentReadAheadCount, long currentReadAheadBytes) {
+        // compatible with old logic
+        boolean chargeSizeCondition = currentReadAheadCount < readAheadCacheBatchSize
+                && currentReadAheadBytes < maxReadAheadBytesSize;
+        if (chargeSizeCondition && readAheadCacheBatchBytesSize > 0) {
+            // exact limits limit the size and count for each batch
+            chargeSizeCondition = currentReadAheadBytes < readAheadCacheBatchBytesSize;
+        }
+        return chargeSizeCondition;
     }
 
     public ByteBuf getLastEntry(long ledgerId) throws IOException, BookieException {
@@ -720,11 +764,13 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         }
 
         long entryLocation = entryLocationIndex.getLocation(ledgerId, lastEntryId);
-        dbLedgerStorageStats.getReadFromLocationIndexTime().add(MathUtils.elapsedNanos(locationIndexStartNano));
+        dbLedgerStorageStats.getReadFromLocationIndexTime().addLatency(
+                MathUtils.elapsedNanos(locationIndexStartNano), TimeUnit.NANOSECONDS);
 
         long readEntryStartNano = MathUtils.nowInNano();
         ByteBuf content = entryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
-        dbLedgerStorageStats.getReadFromEntryLogTime().add(MathUtils.elapsedNanos(readEntryStartNano));
+        dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+                MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
         return content;
     }
 
@@ -737,7 +783,6 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             writeCacheRotationLock.unlockRead(stamp);
         }
     }
-
 
     @Override
     public void checkpoint(Checkpoint checkpoint) throws IOException {
@@ -776,12 +821,8 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             Batch batch = entryLocationIndex.newBatch();
             writeCacheBeingFlushed.forEach((ledgerId, entryId, entry) -> {
-                try {
-                    long location = entryLogger.addEntry(ledgerId, entry, true);
-                    entryLocationIndex.addLocation(batch, ledgerId, entryId, location);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+                long location = entryLogger.addEntry(ledgerId, entry);
+                entryLocationIndex.addLocation(batch, ledgerId, entryId, location);
             });
 
             long entryLoggerStart = MathUtils.nowInNano();
@@ -819,26 +860,23 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             recordFailedEvent(dbLedgerStorageStats.getFlushStats(), startTime);
             // Leave IOExecption as it is
             throw e;
-        } catch (RuntimeException e) {
-            recordFailedEvent(dbLedgerStorageStats.getFlushStats(), startTime);
-            // Wrap unchecked exceptions
-            throw new IOException(e);
         } finally {
-            cleanupExecutor.execute(() -> {
-                // There can only be one single cleanup task running because the cleanupExecutor
-                // is single-threaded
-                try {
-                    if (log.isDebugEnabled()) {
-                        log.debug("Removing deleted ledgers from db indexes");
-                    }
-
-                    entryLocationIndex.removeOffsetFromDeletedLedgers();
-                    ledgerIndex.removeDeletedLedgers();
-                } catch (Throwable t) {
-                    log.warn("Failed to cleanup db indexes", t);
-                }
-            });
             try {
+                cleanupExecutor.execute(() -> {
+                    // There can only be one single cleanup task running because the cleanupExecutor
+                    // is single-threaded
+                    try {
+                        if (log.isDebugEnabled()) {
+                            log.debug("Removing deleted ledgers from db indexes");
+                        }
+
+                        entryLocationIndex.removeOffsetFromDeletedLedgers();
+                        ledgerIndex.removeDeletedLedgers();
+                    } catch (Throwable t) {
+                        log.warn("Failed to cleanup db indexes", t);
+                    }
+                });
+
                 isFlushOngoing.set(false);
             } finally {
                 flushMutex.unlock();
@@ -913,14 +951,35 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     @Override
     public void updateEntriesLocations(Iterable<EntryLocation> locations) throws IOException {
-        // Trigger a flush to have all the entries being compacted in the db storage
-        flush();
+        // Before updating the DB with the new location for the compacted entries, we need to
+        // make sure that there is no ongoing flush() operation.
+        // If there were a flush, we could have the following situation, which is highly
+        // unlikely though possible:
+        // 1. Flush operation has written the write-cache content into entry-log files
+        // 2. The DB location index is not yet updated
+        // 3. Compaction is triggered and starts compacting some of the recent files
+        // 4. Compaction will write the "new location" into the DB
+        // 5. The pending flush() will overwrite the DB with the "old location", pointing
+        //    to a file that no longer exists
+        //
+        // To avoid this race condition, we need that all the entries that are potentially
+        // included in the compaction round to have all the indexes already flushed into
+        // the DB.
+        // The easiest lightweight way to achieve this is to wait for any pending
+        // flush operation to be completed before updating the index with the compacted
+        // entries, by blocking on the flushMutex.
+        flushMutex.lock();
+        flushMutex.unlock();
 
+        // We don't need to keep the flush mutex locked here while updating the DB.
+        // It's fine to have a concurrent flush operation at this point, because we
+        // know that none of the entries being flushed was included in the compaction
+        // round that we are dealing with.
         entryLocationIndex.updateLocations(locations);
     }
 
-    @Override
-    public EntryLogger getEntryLogger() {
+    @VisibleForTesting
+    EntryLogger getEntryLogger() {
         return entryLogger;
     }
 
@@ -937,7 +996,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                 lac = bb.readLong();
                 lac = getOrAddLedgerInfo(ledgerId).setLastAddConfirmed(lac);
             } finally {
-                bb.release();
+                ReferenceCountUtil.release(bb);
             }
         }
         return lac;
@@ -984,13 +1043,11 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             }
             return null;
         }
-        if (ledgerData.hasExplicitLac()) {
-            if (log.isDebugEnabled()) {
-                log.debug("getExplicitLac ledger {} returned from LedgerData", ledgerId);
-            }
-            ByteString persistedLac = ledgerData.getExplicitLac();
-            ledgerInfo.setExplicitLac(Unpooled.wrappedBuffer(persistedLac.toByteArray()));
+        if (log.isDebugEnabled()) {
+            log.debug("getExplicitLac ledger {} returned from LedgerData", ledgerId);
         }
+        ByteString persistedLac = ledgerData.getExplicitLac();
+        ledgerInfo.setExplicitLac(Unpooled.wrappedBuffer(persistedLac.toByteArray()));
         return ledgerInfo.getExplicitLac();
     }
 
@@ -1092,21 +1149,37 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskAlmostFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                    }
+                }
+            }
+
+            @Override
+            public void diskUnderWarnThreshold(File disk) {
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.disableForceGC();
+                    } else {
+                        gcThread.resumeMajorGC();
+                    }
                 }
             }
 
             @Override
             public void diskFull(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    gcThread.enableForceGC();
-                } else {
-                    gcThread.suspendMajorGC();
-                    gcThread.suspendMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        gcThread.enableForceGC();
+                    } else {
+                        gcThread.suspendMajorGC();
+                        gcThread.suspendMinorGC();
+                    }
                 }
+
             }
 
             @Override
@@ -1121,25 +1194,29 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             @Override
             public void diskWritable(File disk) {
-                // we have enough space now
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    // disable force gc.
-                    gcThread.disableForceGC();
-                } else {
-                    // resume compaction to normal.
-                    gcThread.resumeMajorGC();
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    // we have enough space now
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        // disable force gc.
+                        gcThread.disableForceGC();
+                    } else {
+                        // resume compaction to normal.
+                        gcThread.resumeMajorGC();
+                        gcThread.resumeMinorGC();
+                    }
                 }
             }
 
             @Override
             public void diskJustWritable(File disk) {
-                if (gcThread.isForceGCAllowWhenNoSpace()) {
-                    // if a disk is just writable, we still need force gc.
-                    gcThread.enableForceGC();
-                } else {
-                    // still under warn threshold, only resume minor compaction.
-                    gcThread.resumeMinorGC();
+                if (ledgerDirsManager.getAllLedgerDirs().contains(disk)) {
+                    if (gcThread.isForceGCAllowWhenNoSpace()) {
+                        // if a disk is just writable, we still need force gc.
+                        gcThread.enableForceGC();
+                    } else {
+                        // still under warn threshold, only resume minor compaction.
+                        gcThread.resumeMinorGC();
+                    }
                 }
             }
         };
@@ -1230,5 +1307,10 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
                         curFlags, newFlags);
             }
         }
+    }
+
+    @VisibleForTesting
+    DbLedgerStorageStats getDbLedgerStorageStats() {
+        return dbLedgerStorageStats;
     }
 }

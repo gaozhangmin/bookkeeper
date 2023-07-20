@@ -23,7 +23,6 @@ package org.apache.bookkeeper.meta;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-
 import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
@@ -33,14 +32,12 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.PrimitiveIterator.OfLong;
-
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.Checkpointer;
 import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
 import org.apache.bookkeeper.bookie.EntryLocation;
-import org.apache.bookkeeper.bookie.EntryLogger;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.StateManager;
@@ -121,10 +118,10 @@ public abstract class LedgerManagerTestCase extends BookKeeperClusterTestCase {
     @Parameters
     public static Collection<Object[]> configs() {
         return Arrays.asList(new Object[][] {
-            { FlatLedgerManagerFactory.class },
-            { HierarchicalLedgerManagerFactory.class },
-            { LongHierarchicalLedgerManagerFactory.class },
-            { MSLedgerManagerFactory.class },
+                { FlatLedgerManagerFactory.class },
+                { HierarchicalLedgerManagerFactory.class },
+                { LongHierarchicalLedgerManagerFactory.class },
+                { MSLedgerManagerFactory.class },
         });
     }
 
@@ -135,17 +132,17 @@ public abstract class LedgerManagerTestCase extends BookKeeperClusterTestCase {
         baseConf.setMetadataServiceUri(zkUtil.getMetadataServiceUri());
 
         scheduler = OrderedScheduler.newSchedulerBuilder()
-            .name("test-scheduler")
-            .numThreads(1)
-            .build();
+                .name("test-scheduler")
+                .numThreads(1)
+                .build();
 
         clientDriver = MetadataDrivers.getClientDriver(
-            URI.create(baseClientConf.getMetadataServiceUri()));
+                URI.create(baseClientConf.getMetadataServiceUri()));
         clientDriver.initialize(
-            baseClientConf,
-            scheduler,
-            NullStatsLogger.INSTANCE,
-            Optional.empty());
+                baseClientConf,
+                scheduler,
+                NullStatsLogger.INSTANCE,
+                Optional.empty());
         ledgerManagerFactory = clientDriver.getLedgerManagerFactory();
     }
 
@@ -171,12 +168,12 @@ public abstract class LedgerManagerTestCase extends BookKeeperClusterTestCase {
 
         @Override
         public void initialize(
-            ServerConfiguration conf,
-            LedgerManager ledgerManager,
-            LedgerDirsManager ledgerDirsManager,
-            LedgerDirsManager indexDirsManager,
-            StatsLogger statsLogger,
-            ByteBufAllocator allocator) throws IOException {
+                ServerConfiguration conf,
+                LedgerManager ledgerManager,
+                LedgerDirsManager ledgerDirsManager,
+                LedgerDirsManager indexDirsManager,
+                StatsLogger statsLogger,
+                ByteBufAllocator allocator) throws IOException {
         }
 
         @Override
@@ -262,11 +259,6 @@ public abstract class LedgerManagerTestCase extends BookKeeperClusterTestCase {
                     .subMap(firstLedgerId, true, lastLedgerId, false);
 
             return subBkActiveLedgers.keySet();
-        }
-
-        @Override
-        public EntryLogger getEntryLogger() {
-            return null;
         }
 
         @Override

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,10 +19,8 @@ package org.apache.bookkeeper.util;
 
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
-
 import org.apache.bookkeeper.common.util.MdcUtils;
 import org.apache.bookkeeper.common.util.OrderedExecutor;
-import org.apache.bookkeeper.common.util.SafeRunnable;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,9 +60,9 @@ public abstract class OrderedGenericCallback<T> implements GenericCallback<T> {
                 safeOperationComplete(rc, result);
             } else {
                 try {
-                    executor.executeOrdered(orderingKey, new SafeRunnable() {
+                    executor.executeOrdered(orderingKey, new Runnable() {
                         @Override
-                        public void safeRun() {
+                        public void run() {
                             safeOperationComplete(rc, result);
                         }
 

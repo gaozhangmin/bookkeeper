@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -28,7 +28,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -112,7 +111,7 @@ class SyncThread implements Checkpointer {
                 log.error("Exception in SyncThread", t);
                 dirsListener.fatalError();
             } finally {
-                syncExecutorTime.add(MathUtils.elapsedNanos(startTime));
+                syncExecutorTime.addLatency(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
             }
         });
     }
@@ -125,7 +124,7 @@ class SyncThread implements Checkpointer {
             } catch (Throwable t) {
                 log.error("Exception flushing ledgers ", t);
             } finally {
-                syncExecutorTime.add(MathUtils.elapsedNanos(startTime));
+                syncExecutorTime.addLatency(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
             }
         });
     }

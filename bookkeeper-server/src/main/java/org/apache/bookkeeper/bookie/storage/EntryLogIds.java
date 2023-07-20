@@ -1,4 +1,5 @@
 /*
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,19 +16,18 @@
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
  * under the License.
+ *
  */
-plugins {
-    id 'java'
+package org.apache.bookkeeper.bookie.storage;
+
+import java.io.IOException;
+
+/**
+ * Generate unique entry log ids.
+ */
+public interface EntryLogIds {
+    /**
+     * Get the next available entry log ID.
+     */
+    int nextId() throws IOException;
 }
-
-dependencies {
-    testImplementation depLibs.hamcrest
-    testImplementation depLibs.junit
-}
-
-jar.archiveBaseName = 'bookkeeper-slogger-api'
-
-jar {
-    dependsOn tasks.named("writeClasspath")
-}
-

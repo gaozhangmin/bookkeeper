@@ -27,14 +27,12 @@ import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.options.PutOption;
 import io.etcd.jetcd.support.CloseableClient;
 import io.etcd.jetcd.support.Observers;
-
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
-
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.common.concurrent.FutureUtils;
 import org.apache.bookkeeper.metadata.etcd.testing.EtcdTestBase;
@@ -43,7 +41,7 @@ import org.apache.bookkeeper.versioning.Version.Occurred;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.commons.compress.utils.Sets;
 import org.junit.Test;
-import org.testcontainers.shaded.org.apache.commons.lang.RandomStringUtils;
+import org.testcontainers.shaded.org.apache.commons.lang3.RandomStringUtils;
 
 /**
  * Integration test {@link KeySetReader}.
@@ -59,16 +57,16 @@ public class KeySetReaderTest extends EtcdTestBase {
         String key = RandomStringUtils.randomAlphabetic(16);
         ByteSequence keyBs = ByteSequence.from(key, StandardCharsets.UTF_8);
         try (KeySetReader<String> ksReader = new KeySetReader<>(
-            etcdClient,
-            BYTE_SEQUENCE_STRING_FUNCTION,
-            keyBs,
-            null
+                etcdClient,
+                BYTE_SEQUENCE_STRING_FUNCTION,
+                keyBs,
+                null
         )) {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.read());
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertFalse(ksReader.isWatcherSet());
 
@@ -101,10 +99,10 @@ public class KeySetReaderTest extends EtcdTestBase {
         KeySetReader<String> ksReader = null;
         try {
             ksReader = new KeySetReader<>(
-                etcdClient,
-                BYTE_SEQUENCE_STRING_FUNCTION,
-                keyBs,
-                null
+                    etcdClient,
+                    BYTE_SEQUENCE_STRING_FUNCTION,
+                    keyBs,
+                    null
             );
             LinkedBlockingQueue<Versioned<Set<String>>> notifications = new LinkedBlockingQueue<>();
             Consumer<Versioned<Set<String>>> keyConsumer = consumeVersionedKeySet(notifications);
@@ -112,8 +110,8 @@ public class KeySetReaderTest extends EtcdTestBase {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.readAndWatch(keyConsumer));
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertTrue(ksReader.isWatcherSet());
 
@@ -163,10 +161,10 @@ public class KeySetReaderTest extends EtcdTestBase {
         KeySetReader<String> ksReader = null;
         try {
             ksReader = new KeySetReader<>(
-                etcdClient,
-                BYTE_SEQUENCE_STRING_FUNCTION,
-                keyBs,
-                null
+                    etcdClient,
+                    BYTE_SEQUENCE_STRING_FUNCTION,
+                    keyBs,
+                    null
             );
             LinkedBlockingQueue<Versioned<Set<String>>> notifications = new LinkedBlockingQueue<>();
             Consumer<Versioned<Set<String>>> keyConsumer = consumeVersionedKeySet(notifications);
@@ -174,8 +172,8 @@ public class KeySetReaderTest extends EtcdTestBase {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.readAndWatch(keyConsumer));
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertTrue(ksReader.isWatcherSet());
 
@@ -192,7 +190,7 @@ public class KeySetReaderTest extends EtcdTestBase {
             String value = RandomStringUtils.randomAlphabetic(32);
             ByteSequence valueBs = ByteSequence.from(value, StandardCharsets.UTF_8);
             FutureUtils.result(etcdClient.getKVClient()
-                .put(keyBs, valueBs, PutOption.newBuilder().withLeaseId(leaseId).build()));
+                    .put(keyBs, valueBs, PutOption.newBuilder().withLeaseId(leaseId).build()));
 
             // we should get notified with updated key set
             newVersionedKey = notifications.take();
@@ -226,16 +224,16 @@ public class KeySetReaderTest extends EtcdTestBase {
         ByteSequence beginKeyBs = ByteSequence.from(prefix + "-000", StandardCharsets.UTF_8);
         ByteSequence endKeyBs = ByteSequence.from(prefix + "-999", StandardCharsets.UTF_8);
         try (KeySetReader<String> ksReader = new KeySetReader<>(
-            etcdClient,
-            BYTE_SEQUENCE_STRING_FUNCTION,
-            beginKeyBs,
-            endKeyBs
+                etcdClient,
+                BYTE_SEQUENCE_STRING_FUNCTION,
+                beginKeyBs,
+                endKeyBs
         )) {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.read());
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertFalse(ksReader.isWatcherSet());
 
@@ -275,10 +273,10 @@ public class KeySetReaderTest extends EtcdTestBase {
         KeySetReader<String> ksReader = null;
         try {
             ksReader = new KeySetReader<>(
-                etcdClient,
-                BYTE_SEQUENCE_STRING_FUNCTION,
-                beginKeyBs,
-                endKeyBs
+                    etcdClient,
+                    BYTE_SEQUENCE_STRING_FUNCTION,
+                    beginKeyBs,
+                    endKeyBs
             );
             LinkedBlockingQueue<Versioned<Set<String>>> notifications = new LinkedBlockingQueue<>();
             Consumer<Versioned<Set<String>>> keyConsumer = consumeVersionedKeySet(notifications);
@@ -286,8 +284,8 @@ public class KeySetReaderTest extends EtcdTestBase {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.readAndWatch(keyConsumer));
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertTrue(ksReader.isWatcherSet());
 
@@ -351,10 +349,10 @@ public class KeySetReaderTest extends EtcdTestBase {
         KeySetReader<String> ksReader = null;
         try {
             ksReader = new KeySetReader<>(
-                etcdClient,
-                BYTE_SEQUENCE_STRING_FUNCTION,
-                beginKeyBs,
-                endKeyBs
+                    etcdClient,
+                    BYTE_SEQUENCE_STRING_FUNCTION,
+                    beginKeyBs,
+                    endKeyBs
             );
             LinkedBlockingQueue<Versioned<Set<String>>> notifications = new LinkedBlockingQueue<>();
             Consumer<Versioned<Set<String>>> keyConsumer = consumeVersionedKeySet(notifications);
@@ -362,8 +360,8 @@ public class KeySetReaderTest extends EtcdTestBase {
             // key not exists
             Versioned<Set<String>> versionedKeys = FutureUtils.result(ksReader.readAndWatch(keyConsumer));
             assertTrue(
-                "VersionedKeys : " + versionedKeys,
-                ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
+                    "VersionedKeys : " + versionedKeys,
+                    ((LongVersion) versionedKeys.getVersion()).getLongVersion() > 0L);
             assertEquals(0, versionedKeys.getValue().size());
             assertTrue(ksReader.isWatcherSet());
 
@@ -388,7 +386,7 @@ public class KeySetReaderTest extends EtcdTestBase {
                 ByteSequence valueBs = ByteSequence.from(value, StandardCharsets.UTF_8);
                 expectedKeySet.add(key);
                 FutureUtils.result(etcdClient.getKVClient()
-                    .put(keyBs, valueBs, PutOption.newBuilder().withLeaseId(leaseId).build()));
+                        .put(keyBs, valueBs, PutOption.newBuilder().withLeaseId(leaseId).build()));
 
                 // we should get notified with updated key set
                 newVersionedKey = notifications.take();

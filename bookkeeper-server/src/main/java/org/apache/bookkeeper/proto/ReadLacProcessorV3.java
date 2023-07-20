@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,14 +21,10 @@
 package org.apache.bookkeeper.proto;
 
 import com.google.protobuf.ByteString;
-
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.Channel;
 import io.netty.util.ReferenceCountUtil;
-
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadLacRequest;
@@ -46,9 +42,9 @@ import org.slf4j.LoggerFactory;
 class ReadLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(ReadLacProcessorV3.class);
 
-    public ReadLacProcessorV3(Request request, Channel channel,
-                             BookieRequestProcessor requestProcessor) {
-        super(request, channel, requestProcessor);
+    public ReadLacProcessorV3(Request request, BookieRequestHandler requestHandler,
+                              BookieRequestProcessor requestProcessor) {
+        super(request, requestHandler, requestProcessor);
     }
 
     // Returns null if there is no exception thrown
@@ -110,10 +106,10 @@ class ReadLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
 
         if (status == StatusCode.EOK) {
             requestProcessor.getRequestStats().getReadLacStats()
-                .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                    .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
         } else {
             requestProcessor.getRequestStats().getReadLacStats()
-                .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                    .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
         }
         // Finally set the status and return
         readLacResponse.setStatus(status);
@@ -121,16 +117,16 @@ class ReadLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         ReadLacResponse readLacResponse = getReadLacResponse();
         sendResponse(readLacResponse);
     }
 
     private void sendResponse(ReadLacResponse readLacResponse) {
         Response.Builder response = Response.newBuilder()
-            .setHeader(getHeader())
-            .setStatus(readLacResponse.getStatus())
-            .setReadLacResponse(readLacResponse);
+                .setHeader(getHeader())
+                .setStatus(readLacResponse.getStatus())
+                .setReadLacResponse(readLacResponse);
         sendResponse(response.getStatus(),
                 response.build(),
                 requestProcessor.getRequestStats().getReadLacRequestStats());

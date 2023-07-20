@@ -24,7 +24,6 @@ package org.apache.bookkeeper.bookie;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.util.ReferenceCountUtil;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -102,7 +101,7 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
         if (closed) {
             return;
         }
-        ReferenceCountUtil.safeRelease(writeBuffer);
+        ReferenceCountUtil.release(writeBuffer);
         fileChannel.close();
         closed = true;
     }

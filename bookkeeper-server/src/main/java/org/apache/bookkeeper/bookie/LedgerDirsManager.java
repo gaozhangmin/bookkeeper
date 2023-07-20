@@ -47,6 +47,8 @@ public class LedgerDirsManager {
     private static final Logger LOG = LoggerFactory.getLogger(LedgerDirsManager.class);
 
     private volatile List<File> filledDirs;
+
+    private volatile List<File> warnDirs;
     private final List<File> ledgerDirectories;
     private volatile List<File> writableLedgerDirectories;
     private final List<LedgerDirsListener> listeners;
@@ -71,6 +73,7 @@ public class LedgerDirsManager {
         }
         this.writableLedgerDirectories = new ArrayList<File>(ledgerDirectories);
         this.filledDirs = new ArrayList<File>();
+        this.warnDirs = new ArrayList<File>();
         this.listeners = new ArrayList<LedgerDirsListener>();
         this.entryLogSize = conf.getEntryLogSizeLimit();
         this.minUsableSizeForIndexFileCreation = conf.getMinUsableSizeForIndexFileCreation();
@@ -234,6 +237,13 @@ public class LedgerDirsManager {
     }
 
     /**
+     * @return warn threshold ledger dirs.
+     */
+    public List<File> getWarnLedgerDirs() {
+        return warnDirs;
+    }
+
+    /**
      * Get dirs, which are full more than threshold.
      */
     public boolean isDirFull(File dir) {
@@ -258,6 +268,39 @@ public class LedgerDirsManager {
             // Notify listeners about disk full
             for (LedgerDirsListener listener : listeners) {
                 listener.diskFull(dir);
+            }
+        }
+    }
+
+    /**
+     * Add the dir to warn dirs list.
+     */
+    @VisibleForTesting
+    public void addToWarnDirs(File dir) {
+        if (!warnDirs.contains(dir)) {
+            LOG.warn(dir + " usages is above warn threshold. Adding it to warn dirs list");
+            List<File> updatedFilledDirs = new ArrayList<File>(warnDirs);
+            updatedFilledDirs.add(dir);
+            warnDirs = updatedFilledDirs;
+            for (LedgerDirsListener listener : listeners) {
+                listener.diskAlmostFull(dir);
+            }
+        }
+    }
+
+
+    /**
+     * Remove warn dirs list.
+     */
+    @VisibleForTesting
+    public void removeFromWarnDirs(File dir) {
+        if (warnDirs.contains(dir)) {
+            LOG.warn(dir + " usages is under warn threshold. Remove from warn dirs list");
+            List<File> newDirs = new ArrayList<File>(warnDirs);
+            newDirs.remove(dir);
+            warnDirs = newDirs;
+            for (LedgerDirsListener listener : listeners) {
+                listener.diskUnderWarnThreshold(dir);
             }
         }
     }
@@ -401,6 +444,12 @@ public class LedgerDirsManager {
          * @param disk
          */
         default void diskAlmostFull(File disk) {}
+
+        /**
+         * Notified when the disk usage warn threshold is exceeded on the drive.
+         * @param disk
+         */
+        default void diskUnderWarnThreshold(File disk) {}
 
         /**
          * This will be notified on disk detected as full.

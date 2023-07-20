@@ -22,12 +22,14 @@
 package org.apache.bookkeeper.bookie;
 
 import static org.apache.bookkeeper.bookie.BookieImpl.METAENTRY_ID_FENCE_KEY;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.io.IOException;
 import java.util.PrimitiveIterator.OfLong;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bookkeeper.common.util.Watcher;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 
 /**
  * Implements a ledger inside a bookie. In particular, it implements operations
@@ -75,6 +77,9 @@ public abstract class LedgerDescriptor {
     abstract CompletableFuture<Boolean> fenceAndLogInJournal(Journal journal) throws IOException;
 
     abstract long addEntry(ByteBuf entry) throws IOException, BookieException;
+    abstract long addEntry(ByteBuf entry, boolean ackBeforeSync,
+                           BookkeeperInternalCallbacks.WriteCallback cb, Object ctx)
+            throws IOException, InterruptedException, BookieException;
     abstract ByteBuf readEntry(long entryId) throws IOException, BookieException;
 
     abstract long getLastAddConfirmed() throws IOException, BookieException;

@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -24,22 +24,18 @@ import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.ExtensionRegistry;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.ByteBufOutputStream;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.ReferenceCountUtil;
-
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
-
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
@@ -53,6 +49,13 @@ import org.slf4j.LoggerFactory;
  */
 public class BookieProtoEncoding {
     private static final Logger LOG = LoggerFactory.getLogger(BookieProtoEncoding.class);
+
+    /**
+     * Threshold under which an entry is considered to be "small".
+     *
+     * Small entries payloads are copied instead of being passed around as references.
+     */
+    public static final int SMALL_ENTRY_SIZE_THRESHOLD = 16 * 1024;
 
     /**
      * An encoder/decoder interface for the Bookkeeper protocol.
@@ -107,39 +110,30 @@ public class BookieProtoEncoding {
                 return msg;
             }
             BookieProtocol.Request r = (BookieProtocol.Request) msg;
-            if (r instanceof BookieProtocol.AddRequest) {
-                BookieProtocol.AddRequest ar = (BookieProtocol.AddRequest) r;
-                int totalHeaderSize = 4 // for the header
-                    + BookieProtocol.MASTER_KEY_LENGTH; // for the master key
-                ByteBuf buf = allocator.buffer(totalHeaderSize);
-                buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), r.getFlags()));
-                buf.writeBytes(r.getMasterKey(), 0, BookieProtocol.MASTER_KEY_LENGTH);
-                ByteBufList data = ar.getData();
-                ar.recycle();
-                data.prepend(buf);
-                return data;
-            } else if (r instanceof BookieProtocol.ReadRequest) {
+            if (r instanceof BookieProtocol.ReadRequest) {
                 int totalHeaderSize = 4 // for request type
-                    + 8 // for ledgerId
-                    + 8; // for entryId
+                        + 8 // for ledgerId
+                        + 8; // for entryId
                 if (r.hasMasterKey()) {
                     totalHeaderSize += BookieProtocol.MASTER_KEY_LENGTH;
                 }
 
-                ByteBuf buf = allocator.buffer(totalHeaderSize);
+                ByteBuf buf = allocator.buffer(totalHeaderSize + 4 /* frame size */);
+                buf.writeInt(totalHeaderSize);
                 buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), r.getFlags()));
                 buf.writeLong(r.getLedgerId());
                 buf.writeLong(r.getEntryId());
                 if (r.hasMasterKey()) {
                     buf.writeBytes(r.getMasterKey(), 0, BookieProtocol.MASTER_KEY_LENGTH);
                 }
-
+                r.recycle();
                 return buf;
             } else if (r instanceof BookieProtocol.AuthRequest) {
                 BookkeeperProtocol.AuthMessage am = ((BookieProtocol.AuthRequest) r).getAuthMessage();
                 int totalHeaderSize = 4; // for request type
                 int totalSize = totalHeaderSize + am.getSerializedSize();
-                ByteBuf buf = allocator.buffer(totalSize);
+                ByteBuf buf = allocator.buffer(totalSize + 4 /* frame size */);
+                buf.writeInt(totalSize);
                 buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), r.getFlags()));
                 ByteBufOutputStream bufStream = new ByteBufOutputStream(buf);
                 am.writeTo(bufStream);
@@ -162,38 +156,38 @@ public class BookieProtoEncoding {
             long entryId = BookieProtocol.INVALID_ENTRY_ID;
 
             switch (opCode) {
-            case BookieProtocol.ADDENTRY: {
-                byte[] masterKey = readMasterKey(packet);
-
-                // Read ledger and entry id without advancing the reader index
-                ledgerId = packet.getLong(packet.readerIndex());
-                entryId = packet.getLong(packet.readerIndex() + 8);
-                // mark the reader index so that any resets will return to the
-                // start of the payload
-                packet.markReaderIndex();
-                return BookieProtocol.ParsedAddRequest.create(
-                        version, ledgerId, entryId, flags,
-                        masterKey, packet);
-            }
-
-            case BookieProtocol.READENTRY:
-                ledgerId = packet.readLong();
-                entryId = packet.readLong();
-
-                if ((flags & BookieProtocol.FLAG_DO_FENCING) == BookieProtocol.FLAG_DO_FENCING
-                    && version >= 2) {
+                case BookieProtocol.ADDENTRY: {
                     byte[] masterKey = readMasterKey(packet);
-                    return new BookieProtocol.ReadRequest(version, ledgerId, entryId, flags, masterKey);
-                } else {
-                    return new BookieProtocol.ReadRequest(version, ledgerId, entryId, flags, null);
-                }
-            case BookieProtocol.AUTH:
-                BookkeeperProtocol.AuthMessage.Builder builder = BookkeeperProtocol.AuthMessage.newBuilder();
-                builder.mergeFrom(new ByteBufInputStream(packet), extensionRegistry);
-                return new BookieProtocol.AuthRequest(version, builder.build());
 
-            default:
-                throw new IllegalStateException("Received unknown request op code = " + opCode);
+                    // Read ledger and entry id without advancing the reader index
+                    ledgerId = packet.getLong(packet.readerIndex());
+                    entryId = packet.getLong(packet.readerIndex() + 8);
+                    // mark the reader index so that any resets will return to the
+                    // start of the payload
+                    packet.markReaderIndex();
+                    return BookieProtocol.ParsedAddRequest.create(
+                            version, ledgerId, entryId, flags,
+                            masterKey, packet);
+                }
+
+                case BookieProtocol.READENTRY:
+                    ledgerId = packet.readLong();
+                    entryId = packet.readLong();
+
+                    if ((flags & BookieProtocol.FLAG_DO_FENCING) == BookieProtocol.FLAG_DO_FENCING
+                            && version >= 2) {
+                        byte[] masterKey = readMasterKey(packet);
+                        return BookieProtocol.ReadRequest.create(version, ledgerId, entryId, flags, masterKey);
+                    } else {
+                        return BookieProtocol.ReadRequest.create(version, ledgerId, entryId, flags, null);
+                    }
+                case BookieProtocol.AUTH:
+                    BookkeeperProtocol.AuthMessage.Builder builder = BookkeeperProtocol.AuthMessage.newBuilder();
+                    builder.mergeFrom(new ByteBufInputStream(packet), extensionRegistry);
+                    return new BookieProtocol.AuthRequest(version, builder.build());
+
+                default:
+                    throw new IllegalStateException("Received unknown request op code = " + opCode);
             }
         }
 
@@ -233,6 +227,8 @@ public class BookieProtoEncoding {
             this.extensionRegistry = extensionRegistry;
         }
 
+        private static final int RESPONSE_HEADERS_SIZE = 24;
+
         @Override
         public Object encode(Object msg, ByteBufAllocator allocator)
                 throws Exception {
@@ -240,30 +236,48 @@ public class BookieProtoEncoding {
                 return msg;
             }
             BookieProtocol.Response r = (BookieProtocol.Response) msg;
-            ByteBuf buf = allocator.buffer(24);
-            buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), (short) 0));
 
             try {
                 if (msg instanceof BookieProtocol.ReadResponse) {
+                    BookieProtocol.ReadResponse rr = (BookieProtocol.ReadResponse) r;
+                    int payloadSize = rr.getData().readableBytes();
+                    int responseSize = RESPONSE_HEADERS_SIZE + payloadSize;
+                    boolean isSmallEntry = payloadSize < SMALL_ENTRY_SIZE_THRESHOLD;
+
+                    int bufferSize = 4 /* frame size */ + RESPONSE_HEADERS_SIZE
+                            + (isSmallEntry ? payloadSize : 0);
+                    ByteBuf buf = allocator.buffer(bufferSize);
+                    buf.writeInt(responseSize);
+                    buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), (short) 0));
                     buf.writeInt(r.getErrorCode());
                     buf.writeLong(r.getLedgerId());
                     buf.writeLong(r.getEntryId());
 
-                    BookieProtocol.ReadResponse rr = (BookieProtocol.ReadResponse) r;
-                    if (rr.hasData()) {
-                        return ByteBufList.get(buf, rr.getData());
-                    } else {
+                    if (isSmallEntry) {
+                        buf.writeBytes(rr.getData());
+                        rr.release();
                         return buf;
+                    } else {
+                        return ByteBufList.get(buf, rr.getData());
                     }
                 } else if (msg instanceof BookieProtocol.AddResponse) {
+                    ByteBuf buf = allocator.buffer(RESPONSE_HEADERS_SIZE + 4 /* frame size */);
+                    buf.writeInt(RESPONSE_HEADERS_SIZE);
+                    buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), (short) 0));
                     buf.writeInt(r.getErrorCode());
                     buf.writeLong(r.getLedgerId());
                     buf.writeLong(r.getEntryId());
-
                     return buf;
                 } else if (msg instanceof BookieProtocol.AuthResponse) {
                     BookkeeperProtocol.AuthMessage am = ((BookieProtocol.AuthResponse) r).getAuthMessage();
-                    return ByteBufList.get(buf, Unpooled.wrappedBuffer(am.toByteArray()));
+                    int payloadSize = 4 + am.getSerializedSize();
+                    int bufferSize = payloadSize + 4 /* frame size */;
+
+                    ByteBuf buf = allocator.buffer(bufferSize);
+                    buf.writeInt(payloadSize);
+                    buf.writeInt(PacketHeader.toInt(r.getProtocolVersion(), r.getOpCode(), (short) 0));
+                    buf.writeBytes(am.toByteArray());
+                    return buf;
                 } else {
                     LOG.error("Cannot encode unknown response type {}", msg.getClass().getName());
                     return msg;
@@ -283,27 +297,35 @@ public class BookieProtoEncoding {
             byte opCode = PacketHeader.getOpCode(packetHeader);
 
             switch (opCode) {
-            case BookieProtocol.ADDENTRY:
-                rc = buffer.readInt();
-                ledgerId = buffer.readLong();
-                entryId = buffer.readLong();
-                return BookieProtocol.AddResponse.create(version, rc, ledgerId, entryId);
-            case BookieProtocol.READENTRY:
-                rc = buffer.readInt();
-                ledgerId = buffer.readLong();
-                entryId = buffer.readLong();
+                case BookieProtocol.ADDENTRY:
+                    rc = buffer.readInt();
+                    ledgerId = buffer.readLong();
+                    entryId = buffer.readLong();
+                    return BookieProtocol.AddResponse.create(version, rc, ledgerId, entryId);
+                case BookieProtocol.READENTRY:
+                    rc = buffer.readInt();
+                    ledgerId = buffer.readLong();
+                    entryId = buffer.readLong();
 
-                return new BookieProtocol.ReadResponse(
-                        version, rc, ledgerId, entryId, buffer.retainedSlice());
-            case BookieProtocol.AUTH:
-                ByteBufInputStream bufStream = new ByteBufInputStream(buffer);
-                BookkeeperProtocol.AuthMessage.Builder builder = BookkeeperProtocol.AuthMessage.newBuilder();
-                builder.mergeFrom(bufStream, extensionRegistry);
-                BookkeeperProtocol.AuthMessage am = builder.build();
-                return new BookieProtocol.AuthResponse(version, am);
-            default:
-                throw new IllegalStateException("Received unknown response : op code = " + opCode);
+                    return new BookieProtocol.ReadResponse(
+                            version, rc, ledgerId, entryId, buffer.retainedSlice());
+                case BookieProtocol.AUTH:
+                    ByteBufInputStream bufStream = new ByteBufInputStream(buffer);
+                    BookkeeperProtocol.AuthMessage.Builder builder = BookkeeperProtocol.AuthMessage.newBuilder();
+                    builder.mergeFrom(bufStream, extensionRegistry);
+                    BookkeeperProtocol.AuthMessage am = builder.build();
+                    return new BookieProtocol.AuthResponse(version, am);
+                default:
+                    throw new IllegalStateException("Received unknown response : op code = " + opCode);
             }
+        }
+
+        public static void serializeAddResponseInto(int rc, BookieProtocol.ParsedAddRequest req, ByteBuf buf) {
+            buf.writeInt(RESPONSE_HEADERS_SIZE); // Frame size
+            buf.writeInt(PacketHeader.toInt(req.getProtocolVersion(), req.getOpCode(), (short) 0));
+            buf.writeInt(rc); // rc-code
+            buf.writeLong(req.getLedgerId());
+            buf.writeLong(req.getEntryId());
         }
     }
 
@@ -343,7 +365,7 @@ public class BookieProtoEncoding {
         @Override
         public Object decode(ByteBuf packet) throws Exception {
             return BookkeeperProtocol.Response.parseFrom(new ByteBufInputStream(packet),
-                                                         extensionRegistry);
+                    extensionRegistry);
         }
 
         @Override
@@ -356,6 +378,8 @@ public class BookieProtoEncoding {
 
     private static ByteBuf serializeProtobuf(MessageLite msg, ByteBufAllocator allocator) {
         int size = msg.getSerializedSize();
+        int frameSize = size + 4;
+
         // Protobuf serialization is the last step of the netty pipeline. We used to allocate
         // a heap buffer while serializing and pass it down to netty library.
         // In AbstractChannel#filterOutboundMessage(), netty copies that data to a direct buffer if
@@ -363,17 +387,18 @@ public class BookieProtoEncoding {
         // Allocating a direct buffer reducing unncessary CPU cycles for buffer copies in BK client
         // and also helps alleviate pressure off the GC, since there is less memory churn.
         // Bookies aren't usually CPU bound. This change improves READ_ENTRY code paths by a small factor as well.
-        ByteBuf buf = allocator.directBuffer(size, size);
+        ByteBuf buf = allocator.directBuffer(frameSize, frameSize);
+        buf.writeInt(size);
 
         try {
-            msg.writeTo(CodedOutputStream.newInstance(buf.nioBuffer(buf.readerIndex(), size)));
+            msg.writeTo(CodedOutputStream.newInstance(buf.nioBuffer(buf.writerIndex(), size)));
         } catch (IOException e) {
             // This is in-memory serialization, should not fail
             throw new RuntimeException(e);
         }
 
         // Advance writer idx
-        buf.writerIndex(buf.capacity());
+        buf.writerIndex(frameSize);
         return buf;
     }
 
@@ -396,7 +421,9 @@ public class BookieProtoEncoding {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Encode request {} to channel {}.", msg, ctx.channel());
             }
-            if (msg instanceof BookkeeperProtocol.Request) {
+            if (msg instanceof ByteBuf || msg instanceof ByteBufList) {
+                ctx.write(msg, promise);
+            } else if (msg instanceof BookkeeperProtocol.Request) {
                 ctx.write(reqV3.encode(msg, ctx.alloc()), promise);
             } else if (msg instanceof BookieProtocol.Request) {
                 ctx.write(reqPreV3.encode(msg, ctx.alloc()), promise);
@@ -472,7 +499,10 @@ public class BookieProtoEncoding {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Encode response {} to channel {}.", msg, ctx.channel());
             }
-            if (msg instanceof BookkeeperProtocol.Response) {
+
+            if (msg instanceof ByteBuf) {
+                ctx.write(msg, promise);
+            } else if (msg instanceof BookkeeperProtocol.Response) {
                 ctx.write(repV3.encode(msg, ctx.alloc()), promise);
             } else if (msg instanceof BookieProtocol.Response) {
                 ctx.write(repPreV3.encode(msg, ctx.alloc()), promise);

@@ -22,18 +22,18 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.ByteBuf;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Arrays;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
-
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorageDataFormats.LedgerData;
@@ -65,7 +65,7 @@ public class LedgerMetadataIndex implements Closeable {
     private final ConcurrentLinkedQueue<Entry<Long, LedgerData>> pendingLedgersUpdates;
 
     // Holds ledger ids that were delete from memory map, and pending to be flushed on db
-    private final ConcurrentLinkedQueue<Long> pendingDeletedLedgers;
+    private final Set<Long> pendingDeletedLedgers;
     private final ReentrantLock[] locks = new ReentrantLock[16];
 
     public LedgerMetadataIndex(ServerConfiguration conf, KeyValueStorageFactory storageFactory, String basePath,
@@ -92,7 +92,7 @@ public class LedgerMetadataIndex implements Closeable {
         }
 
         this.pendingLedgersUpdates = new ConcurrentLinkedQueue<Entry<Long, LedgerData>>();
-        this.pendingDeletedLedgers = new ConcurrentLinkedQueue<Long>();
+        this.pendingDeletedLedgers = Sets.newConcurrentHashSet();
 
         this.stats = new LedgerMetadataIndexStats(
             stats,
@@ -160,6 +160,9 @@ public class LedgerMetadataIndex implements Closeable {
 
     public Iterable<Long> getActiveLedgersInRange(final long firstLedgerId, final long lastLedgerId)
             throws IOException {
+        if (firstLedgerId <= 0 && lastLedgerId == Long.MAX_VALUE) {
+            return ledgers.keys();
+        }
         return Iterables.filter(ledgers.keys(), new Predicate<Long>() {
             @Override
             public boolean apply(Long ledgerId) {
@@ -185,10 +188,8 @@ public class LedgerMetadataIndex implements Closeable {
                     log.debug("Re-inserted fenced ledger {}", ledgerId);
                 }
                 ledgersCount.incrementAndGet();
-            } else {
-                if (log.isDebugEnabled()) {
-                    log.debug("Set fenced ledger {}", ledgerId);
-                }
+            } else if (log.isDebugEnabled()) {
+                log.debug("Set fenced ledger {}", ledgerId);
             }
 
             pendingLedgersUpdates.add(new SimpleEntry<Long, LedgerData>(ledgerId, newLedgerData));
@@ -216,10 +217,8 @@ public class LedgerMetadataIndex implements Closeable {
                     log.debug("Re-inserted limbo ledger {}", ledgerId);
                 }
                 ledgersCount.incrementAndGet();
-            } else {
-                if (log.isDebugEnabled()) {
-                    log.debug("Set limbo ledger {}", ledgerId);
-                }
+            } else if (log.isDebugEnabled()) {
+                log.debug("Set limbo ledger {}", ledgerId);
             }
 
             pendingLedgersUpdates.add(new SimpleEntry<Long, LedgerData>(ledgerId, newLedgerData));
@@ -247,10 +246,8 @@ public class LedgerMetadataIndex implements Closeable {
                     log.debug("Re-inserted limbo ledger {}", ledgerId);
                 }
                 ledgersCount.incrementAndGet();
-            } else {
-                if (log.isDebugEnabled()) {
-                    log.debug("Set limbo ledger {}", ledgerId);
-                }
+            } else if (log.isDebugEnabled()) {
+                log.debug("Set limbo ledger {}", ledgerId);
             }
 
             pendingLedgersUpdates.add(new SimpleEntry<Long, LedgerData>(ledgerId, newLedgerData));
@@ -305,45 +302,44 @@ public class LedgerMetadataIndex implements Closeable {
     public void flush() throws IOException {
         LongWrapper key = LongWrapper.get();
 
-        int updatedLedgers = 0;
-        while (!pendingLedgersUpdates.isEmpty()) {
-            Entry<Long, LedgerData> entry = pendingLedgersUpdates.poll();
-            key.set(entry.getKey());
-            byte[] value = entry.getValue().toByteArray();
-            ledgersDb.put(key.array, value);
-            ++updatedLedgers;
-        }
+        try {
+            int updatedLedgers = 0;
+            Entry<Long, LedgerData> entry;
+            while ((entry = pendingLedgersUpdates.poll()) != null) {
+                key.set(entry.getKey());
+                byte[] value = entry.getValue().toByteArray();
+                ledgersDb.put(key.array, value);
+                ++updatedLedgers;
+            }
 
-        if (log.isDebugEnabled()) {
-            log.debug("Persisting updates to {} ledgers", updatedLedgers);
-        }
+            if (log.isDebugEnabled()) {
+                log.debug("Persisting updates to {} ledgers", updatedLedgers);
+            }
 
-        ledgersDb.sync();
-        key.recycle();
+            ledgersDb.sync();
+        } finally {
+            key.recycle();
+        }
     }
 
     public void removeDeletedLedgers() throws IOException {
         LongWrapper key = LongWrapper.get();
-        final byte[] startKey = new byte[key.array.length];
 
-        int deletedLedgers = 0;
-        while (!pendingDeletedLedgers.isEmpty()) {
-            long ledgerId = pendingDeletedLedgers.poll();
-            key.set(ledgerId);
-            ledgersDb.delete(key.array);
-            if (deletedLedgers++ == 0) {
-                System.arraycopy(key.array, 0, startKey, 0, startKey.length);
+        try {
+            int deletedLedgers = 0;
+            for (Long ledgerId : pendingDeletedLedgers) {
+                key.set(ledgerId);
+                ledgersDb.delete(key.array);
             }
-        }
 
-        if (log.isDebugEnabled()) {
-            log.debug("Persisting deletes of ledgers {}", deletedLedgers);
+            if (log.isDebugEnabled()) {
+                log.debug("Persisting deletes of ledgers {}", deletedLedgers);
+            }
+
+            ledgersDb.sync();
+        } finally {
+            key.recycle();
         }
-        ledgersDb.sync();
-        if (deletedLedgers != 0) {
-            ledgersDb.compact(startKey, key.array);
-        }
-        key.recycle();
     }
 
     private ReentrantLock lockForLedger(long ledgerId) {
@@ -407,10 +403,8 @@ public class LedgerMetadataIndex implements Closeable {
             if (ledgers.put(ledgerId, newLedgerData) == null) {
                 // Ledger had been deleted
                 return;
-            } else {
-                if (log.isDebugEnabled()) {
-                    log.debug("Set explicitLac on ledger {}", ledgerId);
-                }
+            } else if (log.isDebugEnabled()) {
+                log.debug("Set explicitLac on ledger {}", ledgerId);
             }
             pendingLedgersUpdates.add(new SimpleEntry<Long, LedgerData>(ledgerId, newLedgerData));
         } else {

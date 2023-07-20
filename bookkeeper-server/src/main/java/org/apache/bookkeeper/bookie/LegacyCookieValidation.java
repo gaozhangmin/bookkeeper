@@ -18,7 +18,6 @@
 package org.apache.bookkeeper.bookie;
 
 import com.google.common.collect.Lists;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -28,14 +27,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.discover.RegistrationManager;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.commons.lang3.tuple.Pair;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -244,6 +241,9 @@ public class LegacyCookieValidation implements CookieValidation {
                     List<String> dirs = new ArrayList<>(Arrays.asList(c.getLedgerDirPathsFromCookie()));
                     if (null != c.getIndexDirPathsFromCookie()) {
                         dirs.addAll(Arrays.asList(c.getIndexDirPathsFromCookie()));
+                    }
+                    if (null != c.getColdLegerDirPathsFromCookie()) {
+                        dirs.addAll(Arrays.asList(c.getColdLegerDirPathsFromCookie()));
                     }
                     return Arrays.stream(dirs.toArray(new String[]{}));
                 }).map((s) -> new File(s)).collect(Collectors.toSet());

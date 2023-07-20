@@ -20,6 +20,7 @@
 package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_ADD_ENTRY;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_READ_ENTRY;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.CATEGORY_SERVER;
 
@@ -43,8 +44,8 @@ import org.apache.bookkeeper.stats.annotations.StatsDoc;
 @Getter
 class DbLedgerStorageStats {
 
-    private static final String ADD_ENTRY = "add-entry";
-    private static final String READ_ENTRY = "read-entry";
+    protected static final String ADD_ENTRY = "add-entry";
+    protected static final String READ_ENTRY = "read-entry";
     private static final String READ_ENTRY_LOCATIONS_INDEX_TIME = "read-locations-index-time";
     private static final String READ_ENTRYLOG_TIME = "read-entrylog-time";
     private static final String WRITE_CACHE_HITS = "write-cache-hits";
@@ -79,7 +80,7 @@ class DbLedgerStorageStats {
     @StatsDoc(
         name = READ_ENTRY,
         help = "operation stats of reading entries from db ledger storage",
-        parent = BOOKIE_ADD_ENTRY
+        parent = BOOKIE_READ_ENTRY
     )
     private final OpStatsLogger readEntryStats;
     @StatsDoc(

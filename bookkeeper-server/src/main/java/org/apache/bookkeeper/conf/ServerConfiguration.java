@@ -108,6 +108,20 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String COMPACTION_RATE = "compactionRate";
     protected static final String COMPACTION_RATE_BY_ENTRIES = "compactionRateByEntries";
     protected static final String COMPACTION_RATE_BY_BYTES = "compactionRateByBytes";
+    //direct db ledger storage parameters
+    protected static final String COLD_STORAGE_ARCHIVE_INTERVAL_MS = "coldStorageArchiveIntervalMs";
+    protected static final String DISK_CACHE_RETENTION_TIME_MS = "diskCacheRetentionTimeMs";
+    protected static final String COLD_LEDGER_DIRS = "coldLedgerDirectories";
+    protected static final String ARCHIVE_RATE_BY_BYTES = "archiveRateByBytes";
+    protected static final String ARCHIVE_READ_BUFFER_SIZE_BYTES = "archiveReadBufferSizeBytes";
+    protected static final String ARCHIVE_WRITE_BUFFER_SIZE_BYTES = "archiveWriteBufferSizeBytes";
+
+    protected static final String DIRECT_STORAGE_QUEUE_SIZE = "directStorageQueueSize";
+    protected static final String DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC = "directStorageMaxGroupWaitMSec";
+    protected static final String DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY = "directStorageFlushWhenQueueEmpty";
+    protected static final String DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD = "directStorageBufferedEntriesThreshold";
+
+
 
     // Gc Parameters
     protected static final String GC_WAIT_TIME = "gcWaitTime";
@@ -119,6 +133,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String VERIFY_METADATA_ON_GC = "verifyMetadataOnGC";
     protected static final String GC_ENTRYLOGMETADATA_CACHE_ENABLED = "gcEntryLogMetadataCacheEnabled";
     protected static final String GC_ENTRYLOG_METADATA_CACHE_PATH = "gcEntryLogMetadataCachePath";
+    protected static final String USE_TARGET_ENTRYLOG_SIZE_FOR_GC = "useTargetEntryLogSizeForGc";
     // Scrub Parameters
     protected static final String LOCAL_SCRUB_PERIOD = "localScrubInterval";
     protected static final String LOCAL_SCRUB_RATE_LIMIT = "localScrubRateLimit";
@@ -179,6 +194,8 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String SERVER_SOCK_LINGER = "serverTcpLinger";
     protected static final String SERVER_WRITEBUFFER_LOW_WATER_MARK = "serverWriteBufferLowWaterMark";
     protected static final String SERVER_WRITEBUFFER_HIGH_WATER_MARK = "serverWriteBufferHighWaterMark";
+
+    protected static final String SERVER_NUM_ACCEPTOR_THREADS = "serverNumAcceptorThreads";
     protected static final String SERVER_NUM_IO_THREADS = "serverNumIOThreads";
 
     // Zookeeper Parameters
@@ -336,6 +353,8 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     // Used for location index, lots of writes and much bigger dataset
     protected static final String LEDGER_METADATA_ROCKSDB_CONF = "ledgerMetadataRocksdbConf";
 
+    protected static final String SKIP_REPLAY_JOURNAL_INVALID_RECORD = "skipReplayJournalInvalidRecord";
+
     /**
      * Construct a default configuration object.
      */
@@ -416,6 +435,23 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setGcWaitTime(long gcWaitTime) {
         this.setProperty(GC_WAIT_TIME, Long.toString(gcWaitTime));
+        return this;
+    }
+
+    public long getColdStorageArchiveInterval() {
+        return this.getLong(COLD_STORAGE_ARCHIVE_INTERVAL_MS, 1000);
+    }
+
+    public ServerConfiguration setColdStorageArchiveInterval(long coldStorageArchiveInterval) {
+        this.setProperty(COLD_STORAGE_ARCHIVE_INTERVAL_MS, Long.toString(coldStorageArchiveInterval));
+        return this;
+    }
+
+    public long getDiskCacheRetentionTime() {
+        return this.getLong(DISK_CACHE_RETENTION_TIME_MS, -1L);
+    }
+    public ServerConfiguration setDiskCacheRetentionTime(long diskCacheRetentionTimeMs) {
+        this.setProperty(DISK_CACHE_RETENTION_TIME_MS, Long.toString(diskCacheRetentionTimeMs));
         return this;
     }
 
@@ -553,6 +589,15 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
         return this;
     }
 
+    public boolean isUseTargetEntryLogSizeForGc() {
+        return getBoolean(USE_TARGET_ENTRYLOG_SIZE_FOR_GC, false);
+    }
+
+    public ServerConfiguration setUseTargetEntryLogSizeForGc(boolean useTargetEntryLogSizeForGc) {
+        this.setProperty(USE_TARGET_ENTRYLOG_SIZE_FOR_GC, useTargetEntryLogSizeForGc);
+        return this;
+    }
+
     /**
      * Get whether local scrub is enabled.
      *
@@ -565,14 +610,14 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     /**
      * Get local scrub interval.
      *
-     * @return Number of seconds between scrubs, <= 0 for disabled.
+     * @return Number of seconds between scrubs, {@literal <=}0 for disabled.
      */
     public long getLocalScrubPeriod() {
         return this.getLong(LOCAL_SCRUB_PERIOD, 0);
     }
 
     /**
-     * Set local scrub period in seconds (<= 0 for disabled). Scrub will be scheduled at delays
+     * Set local scrub period in seconds ({@literal <=}0 for disabled). Scrub will be scheduled at delays
      * chosen from the interval (.5 * interval, 1.5 * interval)
      */
     public void setLocalScrubPeriod(long period) {
@@ -1448,6 +1493,76 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     }
 
     /**
+     * Get dir name to store cold files.
+     *
+     * @return ledger index dir name, if no cold dirs provided return null
+     */
+    public String[] getColdLedgerDirNames() {
+        if (!this.containsKey(COLD_LEDGER_DIRS)) {
+            return null;
+        }
+        return this.getStringArray(COLD_LEDGER_DIRS);
+    }
+
+    /**
+     * Set dir name to store cold files.
+     *
+     * @param coldLedgerDirs
+     *          Index dir names
+     * @return server configuration.
+     */
+    public ServerConfiguration setColdLedgerDirName(String[] coldLedgerDirs) {
+        this.setProperty(COLD_LEDGER_DIRS, coldLedgerDirs);
+        return this;
+    }
+
+    /**
+     * Get index dir to store cold ledger files.
+     *
+     * @return cold dirs, if no index dirs provided return null
+     */
+    public File[] getColdLedgerDirs() {
+        String[] coldDirNames = getColdLedgerDirNames();
+        if (null == coldDirNames) {
+            return null;
+        }
+        File[] coldDirs = new File[coldDirNames.length];
+        for (int i = 0; i < coldDirNames.length; i++) {
+            coldDirs[i] = new File(coldDirNames[i]);
+        }
+        return coldDirs;
+    }
+
+    public ServerConfiguration setArchiveRateByBytes(int archiveRateByBytes) {
+        setProperty(ARCHIVE_RATE_BY_BYTES, archiveRateByBytes);
+        return this;
+    }
+
+    public int getArchiveRateBytes() {
+        return getInt(ARCHIVE_RATE_BY_BYTES, -1);
+    }
+
+
+    public ServerConfiguration setArchiveReadBufferSize(int archiveReadBufferSize) {
+        setProperty(ARCHIVE_READ_BUFFER_SIZE_BYTES, archiveReadBufferSize);
+        return this;
+    }
+
+    public int getArchiveReadBufferSize() {
+        return getInt(ARCHIVE_READ_BUFFER_SIZE_BYTES, 512);
+    }
+
+    public ServerConfiguration setArchiveWriteBufferSize(int archiveWriteBufferSize) {
+        setProperty(ARCHIVE_WRITE_BUFFER_SIZE_BYTES, archiveWriteBufferSize);
+        return this;
+    }
+
+    public int getArchiveWriteBufferSize() {
+        return getInt(ARCHIVE_WRITE_BUFFER_SIZE_BYTES, 65536);
+    }
+
+
+    /**
      * Is tcp connection no delay.
      *
      * @return tcp socket nodelay setting
@@ -1476,6 +1591,15 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public int getServerNumIOThreads() {
         return getInt(SERVER_NUM_IO_THREADS, 2 * Runtime.getRuntime().availableProcessors());
+    }
+
+    /**
+     * Get the number of Acceptor threads.
+     *
+     * @return the number of Acceptor threads
+     */
+    public int getServerNumAcceptorThreads() {
+        return getInt(SERVER_NUM_ACCEPTOR_THREADS, 1);
     }
 
     /**
@@ -2117,6 +2241,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      *          number of threads to handle journal callbacks.
      * @return server configuration
      */
+    @Deprecated
     public ServerConfiguration setNumJournalCallbackThreads(int numThreads) {
         setProperty(NUM_JOURNAL_CALLBACK_THREADS, numThreads);
         return this;
@@ -2127,6 +2252,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      *
      * @return the number of threads that handle journal callbacks.
      */
+    @Deprecated
     public int getNumJournalCallbackThreads() {
         return getInt(NUM_JOURNAL_CALLBACK_THREADS, 1);
     }
@@ -3925,6 +4051,25 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
         return this.getBoolean(DATA_INTEGRITY_COOKIE_STAMPING_ENABLED, false);
     }
 
+
+    /**
+     * When this config is set to true,if we replay journal failed, we will skip.
+     * @param skipReplayJournalInvalidRecord
+     * @return
+     */
+    public ServerConfiguration setSkipReplayJournalInvalidRecord(boolean skipReplayJournalInvalidRecord) {
+        this.setProperty(SKIP_REPLAY_JOURNAL_INVALID_RECORD,
+                Boolean.toString(skipReplayJournalInvalidRecord));
+        return this;
+    }
+
+    /**
+     * @see #isSkipReplayJournalInvalidRecord .
+     */
+    public boolean isSkipReplayJournalInvalidRecord() {
+        return this.getBoolean(SKIP_REPLAY_JOURNAL_INVALID_RECORD, false);
+    }
+
     /**
      * Get default rocksdb conf.
      *
@@ -3998,24 +4143,86 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     }
 
     /**
-     * Get the bytes rate of re-replication.
-     * Default value is -1 which it means entries will replicated without any throttling activity.
+     * Set the size of the DirectStorage queue.
      *
-     * @return bytes rate of re-replication.
+     * @param directStorageQueueSize
+     *            the max size of DirectStorage queue
+     * @return server configuration.
      */
-    public int getReplicationRateByBytes() {
-        return getInt(REPLICATION_RATE_BY_BYTES, -1);
+    public ServerConfiguration setDirectStorageQueueSize(int directStorageQueueSize) {
+        this.setProperty(DIRECT_STORAGE_QUEUE_SIZE, directStorageQueueSize);
+        return this;
     }
 
     /**
-     * Set the rate of re-replication.
+     * Get size of DirectStorage queue.
      *
-     * @param rate bytes rate of re-replication.
-     *
-     * @return ServerConfiguration
+     * @return the max size of DirectStorage queue.
      */
-    public ServerConfiguration setReplicationRateByBytes(int rate) {
-        setProperty(REPLICATION_RATE_BY_BYTES, rate);
+    public int getDirectStorageQueueSize() {
+        return this.getInt(DIRECT_STORAGE_QUEUE_SIZE, 10_000);
+    }
+
+    /**
+     * Maximum latency to impose on a DirectStorage write to achieve grouping. Default is 2ms.
+     *
+     * @return max wait for grouping
+     */
+    public long getDirectStorageMaxGroupWaitMSec() {
+        return getLong(DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC, 2);
+    }
+
+    /**
+     * Sets the maximum latency to impose on a DirectStorage write to achieve grouping.
+     *
+     * @param directStorageMaxGroupWaitMSec
+     *          maximum time to wait in milliseconds.
+     * @return server configuration.
+     */
+    public ServerConfiguration setDirectStorageMaxGroupWaitMSec(long directStorageMaxGroupWaitMSec) {
+        setProperty(DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC, directStorageMaxGroupWaitMSec);
+        return this;
+    }
+
+    /**
+     * Set if we should flush the DirectStorage when queue is empty.
+     */
+    public ServerConfiguration setDirectStorageFlushWhenQueueEmpty(boolean enabled) {
+        setProperty(DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY, enabled);
+        return this;
+    }
+
+    /**
+     * Should we flush the DirectStorage when queue is empty.
+     *
+     * @return flush when queue is empty
+     */
+    public boolean getDirectStorageFlushWhenQueueEmpty() {
+        return getBoolean(DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY, false);
+    }
+
+    /**
+     * Maximum entries to buffer to impose on a DirectStorage write to achieve grouping.
+     * Use {@link #getJournalBufferedWritesThreshold()} if this is set to zero or
+     * less than zero.
+     *
+     * @return max entries to buffer.
+     */
+    public long getDirectStorageBufferedEntriesThreshold() {
+        return getLong(DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD, 0);
+    }
+
+    /**
+     * Set maximum entries to buffer to impose on a DirectStorage write to achieve grouping.
+     * Use {@link #getJournalBufferedWritesThreshold()} set this to zero or less than
+     * zero.
+     *
+     * @param maxEntries
+     *          maximum entries to buffer.
+     * @return server configuration.
+     */
+    public ServerConfiguration setDirectStorageBufferedEntriesThreshold(int maxEntries) {
+        setProperty(DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD, maxEntries);
         return this;
     }
 }

@@ -75,17 +75,19 @@ public class Cookie {
     private final String journalDirs;
     private final String ledgerDirs;
     private final String indexDirs;
+    private final String coldLedgerDirs;
     private final String instanceId;
     private static final String SEPARATOR = "\t";
 
     private Cookie(int layoutVersion, String bookieId, String journalDirs, String ledgerDirs, String instanceId,
-                   String indexDirs) {
+                   String indexDirs, String coldLedgerDirs) {
         this.layoutVersion = layoutVersion;
         this.bookieId = bookieId;
         this.journalDirs = journalDirs;
         this.ledgerDirs = ledgerDirs;
         this.instanceId = instanceId;
         this.indexDirs = indexDirs;
+        this.coldLedgerDirs = coldLedgerDirs;
     }
 
     public static String encodeDirPaths(String[] dirs) {
@@ -113,6 +115,13 @@ public class Cookie {
             return null;
         }
         return decodeDirPathFromCookie(indexDirs);
+    }
+
+    String[] getColdLegerDirPathsFromCookie() {
+        if (null == coldLedgerDirs) {
+            return null;
+        }
+        return decodeDirPathFromCookie(coldLedgerDirs);
     }
 
     /**
@@ -149,6 +158,20 @@ public class Cookie {
         }
     }
 
+    private boolean verifyColdLedgerDirs(Cookie c, boolean checkIfSuperSet) {
+        if (coldLedgerDirs == null && c.coldLedgerDirs == null) {
+            return true;
+        }
+        if (coldLedgerDirs == null || c.coldLedgerDirs == null) {
+            return false;
+        }
+        if (!checkIfSuperSet) {
+            return coldLedgerDirs.equals(c.coldLedgerDirs);
+        } else {
+            return isSuperSet(decodeDirPathFromCookie(coldLedgerDirs), decodeDirPathFromCookie(c.coldLedgerDirs));
+        }
+    }
+
     private void verifyInternal(Cookie c, boolean checkIfSuperSet) throws BookieException.InvalidCookieException {
         String errMsg;
         if (c.layoutVersion < 3 && c.layoutVersion != layoutVersion) {
@@ -157,7 +180,7 @@ public class Cookie {
             throw new BookieException.InvalidCookieException(errMsg);
         } else if (!(c.layoutVersion >= 3 && c.bookieId.equals(bookieId)
             && c.journalDirs.equals(journalDirs) && verifyLedgerDirs(c, checkIfSuperSet)
-            && verifyIndexDirs(c, checkIfSuperSet))) {
+            && verifyIndexDirs(c, checkIfSuperSet) && verifyColdLedgerDirs(c, checkIfSuperSet))) {
             errMsg = "Cookie [" + this + "] is not matching with [" + c + "]";
             throw new BookieException.InvalidCookieException(errMsg);
         } else if ((instanceId == null && c.instanceId != null)
@@ -192,10 +215,12 @@ public class Cookie {
         if (null != indexDirs) {
             builder.setIndexDirs(indexDirs);
         }
-
+        if (null != coldLedgerDirs) {
+            builder.setColdLedgerDirs(coldLedgerDirs);
+        }
         StringBuilder b = new StringBuilder();
         b.append(CURRENT_COOKIE_LAYOUT_VERSION).append("\n");
-        b.append(builder.build().toString());
+        b.append(builder.build());
         return b.toString();
     }
 
@@ -239,6 +264,9 @@ public class Cookie {
             }
             if (null != data.getIndexDirs() && !data.getIndexDirs().isEmpty()) {
                 cBuilder.setIndexDirs(data.getIndexDirs());
+            }
+            if (null != data.getColdLedgerDirs() && !data.getColdLedgerDirs().isEmpty()) {
+                cBuilder.setColdLedgerDirs(data.getColdLedgerDirs());
             }
         }
         return cBuilder;
@@ -338,6 +366,9 @@ public class Cookie {
         if (null != conf.getIndexDirNames()) {
             builder.setIndexDirs(encodeDirPaths(conf.getIndexDirNames()));
         }
+        if (null != conf.getColdLedgerDirNames()) {
+            builder.setColdLedgerDirs(encodeDirPaths(conf.getColdLedgerDirNames()));
+        }
         return builder;
     }
 
@@ -433,18 +464,20 @@ public class Cookie {
         private String ledgerDirs = null;
         private String instanceId = null;
         private String indexDirs = null;
+        private String coldLedgerDirs = null;
 
         private Builder() {
         }
 
         private Builder(int layoutVersion, String bookieId, String journalDirs, String ledgerDirs,
-                        String instanceId, String indexDirs) {
+                        String instanceId, String indexDirs, String coldLedgerDirs) {
             this.layoutVersion = layoutVersion;
             this.bookieId = bookieId;
             this.journalDirs = journalDirs;
             this.ledgerDirs = ledgerDirs;
             this.instanceId = instanceId;
             this.indexDirs = indexDirs;
+            this.coldLedgerDirs = coldLedgerDirs;
         }
 
         public Builder setLayoutVersion(int layoutVersion) {
@@ -477,8 +510,13 @@ public class Cookie {
             return this;
         }
 
+        public Builder setColdLedgerDirs(String coldLedgerDirs) {
+            this.coldLedgerDirs = coldLedgerDirs;
+            return this;
+        }
+
         public Cookie build() {
-            return new Cookie(layoutVersion, bookieId, journalDirs, ledgerDirs, instanceId, indexDirs);
+            return new Cookie(layoutVersion, bookieId, journalDirs, ledgerDirs, instanceId, indexDirs, coldLedgerDirs);
         }
     }
 
@@ -499,7 +537,7 @@ public class Cookie {
      */
     public static Builder newBuilder(Cookie oldCookie) {
         return new Builder(oldCookie.layoutVersion, oldCookie.bookieId, oldCookie.journalDirs, oldCookie.ledgerDirs,
-                oldCookie.instanceId, oldCookie.indexDirs);
+                oldCookie.instanceId, oldCookie.indexDirs, oldCookie.coldLedgerDirs);
     }
 
     @Override
@@ -511,7 +549,8 @@ public class Cookie {
                 && Objects.equals(journalDirs, otherCookie.journalDirs)
                 && Objects.equals(ledgerDirs, otherCookie.ledgerDirs)
                 && Objects.equals(instanceId, otherCookie.instanceId)
-                && Objects.equals(indexDirs, otherCookie.indexDirs);
+                && Objects.equals(indexDirs, otherCookie.indexDirs)
+                && Objects.equals(coldLedgerDirs, otherCookie.coldLedgerDirs);
         } else {
             return false;
         }
@@ -519,6 +558,9 @@ public class Cookie {
 
     @Override
     public int hashCode() {
+        if (coldLedgerDirs != null) {
+            return Objects.hash(bookieId, journalDirs, ledgerDirs, instanceId, indexDirs, coldLedgerDirs);
+        }
         return Objects.hash(bookieId, journalDirs, ledgerDirs, instanceId, indexDirs);
     }
 }

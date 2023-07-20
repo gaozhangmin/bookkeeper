@@ -1,4 +1,5 @@
 /*
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,37 +16,37 @@
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
  * under the License.
+ *
  */
-plugins {
-    id 'java-library'
-    id 'com.adarshr.test-logger'
-}
+package org.apache.bookkeeper.bookie.storage;
 
-description = 'Apache BookKeeper :: Stats Providers :: Codahale Metrics'
+import io.netty.buffer.ByteBuf;
+import java.io.IOException;
 
-dependencies {
+/**
+ * Scan entries in a entry log file.
+ */
+public interface EntryLogScanner {
+    /**
+     * Tests whether or not the entries belongs to the specified ledger
+     * should be processed.
+     *
+     * @param ledgerId
+     *          Ledger ID.
+     * @return true if and only the entries of the ledger should be scanned.
+     */
+    boolean accept(long ledgerId);
 
-    implementation project(':bookkeeper-stats')
-
-    implementation depLibs.commonsConfiguration
-    implementation depLibs.guava
-    implementation depLibs.metricsCore
-    implementation depLibs.metricsGraphite
-    implementation depLibs.metricsJmx
-    implementation depLibs.metricsJvm
-
-    compileOnly depLibs.lombok
-    compileOnly depLibs.spotbugsAnnotations
-
-    testCompileOnly depLibs.lombok
-
-    testImplementation depLibs.junit
-
-    annotationProcessor depLibs.lombok
-    testAnnotationProcessor depLibs.lombok
-    testImplementation depLibs.junit
-}
-
-jar {
-    archiveBaseName = 'codahale-metrics-provider'
+    /**
+     * Process an entry.
+     *
+     * @param ledgerId
+     *          Ledger ID.
+     * @param offset
+     *          File offset of this entry.
+     * @param entry
+     *          Entry ByteBuf
+     * @throws IOException
+     */
+    void process(long ledgerId, long offset, ByteBuf entry) throws IOException;
 }

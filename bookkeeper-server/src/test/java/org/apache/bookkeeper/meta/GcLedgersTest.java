@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
 import com.google.common.collect.Lists;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -57,7 +58,6 @@ import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.Checkpointer;
 import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
 import org.apache.bookkeeper.bookie.EntryLocation;
-import org.apache.bookkeeper.bookie.EntryLogger;
 import org.apache.bookkeeper.bookie.GarbageCollector;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
@@ -121,14 +121,14 @@ public class GcLedgersTest extends LedgerManagerTestCase {
                     }
 
                     LedgerMetadata md = LedgerMetadataBuilder.create()
-                        .withId(ledgerId)
-                        .withDigestType(DigestType.CRC32C)
-                        .withPassword(new byte[0])
-                        .withEnsembleSize(1).withWriteQuorumSize(1).withAckQuorumSize(1)
-                        .newEnsembleEntry(0L, ensemble).build();
+                            .withId(ledgerId)
+                            .withDigestType(DigestType.CRC32C)
+                            .withPassword(new byte[0])
+                            .withEnsembleSize(1).withWriteQuorumSize(1).withAckQuorumSize(1)
+                            .newEnsembleEntry(0L, ensemble).build();
 
                     getLedgerManager().createLedgerMetadata(ledgerId, md)
-                        .whenComplete((result, exception) -> {
+                            .whenComplete((result, exception) -> {
                                 if (exception == null) {
                                     activeLedgers.put(ledgerId, true);
                                     createdLedgers.add(ledgerId);
@@ -265,18 +265,18 @@ public class GcLedgersTest extends LedgerManagerTestCase {
         final ScanAndCompareGarbageCollector garbageCollector = new ScanAndCompareGarbageCollector(getLedgerManager(),
                 mockLedgerStorage, baseConf, stats.getStatsLogger("gc"));
         GarbageCollector.GarbageCleaner cleaner = new GarbageCollector.GarbageCleaner() {
-                @Override
-                public void clean(long ledgerId) {
-                    LOG.info("Cleaned {}", ledgerId);
-                    cleaned.add(ledgerId);
-                    try {
-                        mockLedgerStorage.deleteLedger(ledgerId);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        fail("Exception from deleteLedger");
-                    }
+            @Override
+            public void clean(long ledgerId) {
+                LOG.info("Cleaned {}", ledgerId);
+                cleaned.add(ledgerId);
+                try {
+                    mockLedgerStorage.deleteLedger(ledgerId);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    fail("Exception from deleteLedger");
                 }
-            };
+            }
+        };
 
         garbageCollector.gc(cleaner);
         assertNull("Should have cleaned nothing", cleaned.poll());
@@ -316,12 +316,12 @@ public class GcLedgersTest extends LedgerManagerTestCase {
         final GarbageCollector garbageCollector = new ScanAndCompareGarbageCollector(getLedgerManager(),
                 new MockLedgerStorage(), baseConf, NullStatsLogger.INSTANCE);
         GarbageCollector.GarbageCleaner cleaner = new GarbageCollector.GarbageCleaner() {
-                @Override
-                public void clean(long ledgerId) {
-                    LOG.info("Cleaned {}", ledgerId);
-                    cleaned.add(ledgerId);
-                }
-            };
+            @Override
+            public void clean(long ledgerId) {
+                LOG.info("Cleaned {}", ledgerId);
+                cleaned.add(ledgerId);
+            }
+        };
 
         SortedSet<Long> scannedLedgers = new TreeSet<Long>();
         LedgerRangeIterator iterator = getLedgerManager().getLedgerRanges(0);
@@ -574,12 +574,12 @@ public class GcLedgersTest extends LedgerManagerTestCase {
 
         @Override
         public void initialize(
-            ServerConfiguration conf,
-            LedgerManager ledgerManager,
-            LedgerDirsManager ledgerDirsManager,
-            LedgerDirsManager indexDirsManager,
-            StatsLogger statsLogger,
-            ByteBufAllocator allocator) throws IOException {
+                ServerConfiguration conf,
+                LedgerManager ledgerManager,
+                LedgerDirsManager ledgerDirsManager,
+                LedgerDirsManager indexDirsManager,
+                StatsLogger statsLogger,
+                ByteBufAllocator allocator) throws IOException {
         }
 
         @Override
@@ -670,11 +670,6 @@ public class GcLedgersTest extends LedgerManagerTestCase {
                     .subMap(firstLedgerId, true, lastLedgerId, false);
 
             return subBkActiveLedgers.keySet();
-        }
-
-        @Override
-        public EntryLogger getEntryLogger() {
-            return null;
         }
 
         @Override

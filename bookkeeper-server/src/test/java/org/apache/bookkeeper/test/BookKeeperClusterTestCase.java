@@ -75,6 +75,7 @@ import org.apache.bookkeeper.replication.Auditor;
 import org.apache.bookkeeper.replication.AutoRecoveryMain;
 import org.apache.bookkeeper.replication.ReplicationWorker;
 import org.apache.bookkeeper.server.Main;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.PortManager;
@@ -275,6 +276,7 @@ public abstract class BookKeeperClusterTestCase {
             bkc.close();
         }
 
+        stopReplicationService();
         for (ServerTester t : servers) {
             t.shutdown();
         }
@@ -316,6 +318,7 @@ public abstract class BookKeeperClusterTestCase {
     }
 
     protected void stopAllBookies(boolean shutdownClient) throws Exception {
+        stopReplicationService();
         for (ServerTester t : servers) {
             t.shutdown();
         }
@@ -607,6 +610,7 @@ public abstract class BookKeeperClusterTestCase {
             throws Exception {
         // shut down bookie server
         List<ServerConfiguration> confs = new ArrayList<>();
+        stopReplicationService();
         for (ServerTester server : servers) {
             server.shutdown();
             confs.add(server.getConfiguration());
@@ -856,21 +860,23 @@ public abstract class BookKeeperClusterTestCase {
                     conf, diskChecker, bookieStats.scope(LD_LEDGER_SCOPE));
             LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                     conf, diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
+            LedgerDirsManager coldLedgerDirsManager = BookieResources.createColdLedgerDirsManager(
+                    conf, diskChecker, NullStatsLogger.INSTANCE);
 
             UncleanShutdownDetection uncleanShutdownDetection = new UncleanShutdownDetectionImpl(ledgerDirsManager);
 
             storage = BookieResources.createLedgerStorage(
-                    conf, ledgerManager, ledgerDirsManager, indexDirsManager,
+                    conf, ledgerManager, ledgerDirsManager, indexDirsManager, coldLedgerDirsManager,
                     bookieStats, allocator);
 
             if (conf.isForceReadOnlyBookie()) {
                 bookie = new ReadOnlyBookie(conf, registrationManager, storage,
                                             diskChecker, ledgerDirsManager, indexDirsManager,
-                                            bookieStats, allocator, BookieServiceInfo.NO_INFO);
+                        coldLedgerDirsManager, bookieStats, allocator, BookieServiceInfo.NO_INFO);
             } else {
                 bookie = new BookieImpl(conf, registrationManager, storage,
                                         diskChecker, ledgerDirsManager, indexDirsManager,
-                                        bookieStats, allocator, BookieServiceInfo.NO_INFO);
+                        coldLedgerDirsManager, bookieStats, allocator, BookieServiceInfo.NO_INFO);
             }
             server = new BookieServer(conf, bookie, rootStatsLogger, allocator,
                     uncleanShutdownDetection);
@@ -898,14 +904,18 @@ public abstract class BookKeeperClusterTestCase {
         }
 
         public void startAutoRecovery() throws Exception {
-            LOG.debug("Starting Auditor Recovery for the bookie: {}", address);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Starting Auditor Recovery for the bookie: {}", address);
+            }
             autoRecovery = new AutoRecoveryMain(conf);
             autoRecovery.start();
         }
 
         public void stopAutoRecovery() {
             if (autoRecovery != null) {
-                LOG.debug("Shutdown Auditor Recovery for the bookie: {}", address);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Shutdown Auditor Recovery for the bookie: {}", address);
+                }
                 autoRecovery.shutdown();
             }
         }
@@ -959,7 +969,9 @@ public abstract class BookKeeperClusterTestCase {
             }
 
             if (autoRecovery != null) {
-                LOG.debug("Shutdown auto recovery for bookieserver: {}", address);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Shutdown auto recovery for bookie server: {}", address);
+                }
                 autoRecovery.shutdown();
             }
         }

@@ -23,18 +23,14 @@ package org.apache.bookkeeper.bookie;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
-
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.util.NativeIO;
+import org.apache.bookkeeper.util.PageCacheUtil;
 import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,15 +46,15 @@ class JournalChannel implements Closeable {
     final BookieFileChannel channel;
     final int fd;
     final FileChannel fc;
-    final BufferedChannel bc;
     final int formatVersion;
+    BufferedChannel bc;
     long nextPrealloc = 0;
 
     final byte[] magicWord = "BKLG".getBytes(UTF_8);
 
     static final int SECTOR_SIZE = 512;
     private static final int START_OF_FILE = -12345;
-    private static long cacheDropLagBytes = 8 * MB;
+    private static final long cacheDropLagBytes = 8 * MB;
 
     // No header
     static final int V1 = 1;
@@ -71,7 +67,7 @@ class JournalChannel implements Closeable {
     // 1) expanding header to 512
     // 2) Padding writes to align sector size
     static final int V5 = 5;
-    // Adding explicitlac entry
+    // Adding explicit lac entry
     public static final int V6 = 6;
 
     static final int HEADER_SIZE = SECTOR_SIZE; // align header to sector size
@@ -92,7 +88,7 @@ class JournalChannel implements Closeable {
     // Mostly used by tests
     JournalChannel(File journalDirectory, long logId) throws IOException {
         this(journalDirectory, logId, 4 * MB, 65536, START_OF_FILE, new ServerConfiguration(),
-            new DefaultFileChannelProvider());
+                new DefaultFileChannelProvider());
     }
 
     // Open journal for scanning starting from the first record in journal.
@@ -106,9 +102,9 @@ class JournalChannel implements Closeable {
     JournalChannel(File journalDirectory, long logId,
                    long preAllocSize, int writeBufferSize, long position, ServerConfiguration conf,
                    FileChannelProvider provider) throws IOException {
-         this(journalDirectory, logId, preAllocSize, writeBufferSize, SECTOR_SIZE,
-                 position, false, V5, Journal.BufferedChannelBuilder.DEFAULT_BCBUILDER,
-             conf, provider);
+        this(journalDirectory, logId, preAllocSize, writeBufferSize, SECTOR_SIZE,
+                position, false, V5, Journal.BufferedChannelBuilder.DEFAULT_BCBUILDER,
+                conf, provider);
     }
 
     // Open journal to write
@@ -174,12 +170,13 @@ class JournalChannel implements Closeable {
         if (!channel.fileExists(fn)) { // new file, write version
             if (!fn.createNewFile()) {
                 LOG.error("Journal file {}, that shouldn't exist, already exists. "
-                          + " is there another bookie process running?", fn);
+                        + " is there another bookie process running?", fn);
                 throw new IOException("File " + fn
                         + " suddenly appeared, is another bookie process running?");
             }
             fc = channel.getFileChannel();
             formatVersion = formatVersionToWrite;
+
 
             int headerSize = (V4 == formatVersion) ? VERSION_HEADER_SIZE : HEADER_SIZE;
             ByteBuffer bb = ByteBuffer.allocate(headerSize);
@@ -194,7 +191,7 @@ class JournalChannel implements Closeable {
             forceWrite(true);
             nextPrealloc = this.preAllocSize;
             fc.write(zeros, nextPrealloc - journalAlignSize);
-        } else {  // open an existing file
+        } else {  // open an existing file to read.
             fc = channel.getFileChannel();
             bc = null; // readonly
 
@@ -218,9 +215,9 @@ class JournalChannel implements Closeable {
             }
 
             if (formatVersion < MIN_COMPAT_JOURNAL_FORMAT_VERSION
-                || formatVersion > CURRENT_JOURNAL_FORMAT_VERSION) {
+                    || formatVersion > CURRENT_JOURNAL_FORMAT_VERSION) {
                 String err = String.format("Invalid journal version, unable to read."
-                        + " Expected between (%d) and (%d), got (%d)",
+                                + " Expected between (%d) and (%d), got (%d)",
                         MIN_COMPAT_JOURNAL_FORMAT_VERSION, CURRENT_JOURNAL_FORMAT_VERSION,
                         formatVersion);
                 LOG.error(err);
@@ -245,7 +242,7 @@ class JournalChannel implements Closeable {
             }
         }
         if (fRemoveFromPageCache) {
-            this.fd = NativeIO.getSysFileDescriptor(channel.getFD());
+            this.fd = PageCacheUtil.getSysFileDescriptor(channel.getFD());
         } else {
             this.fd = -1;
         }
@@ -303,18 +300,10 @@ class JournalChannel implements Closeable {
         if (fRemoveFromPageCache) {
             long newDropPos = newForceWritePosition - cacheDropLagBytes;
             if (lastDropPosition < newDropPos) {
-                NativeIO.bestEffortRemoveFromPageCache(fd, lastDropPosition, newDropPos - lastDropPosition);
+                PageCacheUtil.bestEffortRemoveFromPageCache(fd, lastDropPosition, newDropPos - lastDropPosition);
             }
             this.lastDropPosition = newDropPos;
         }
     }
 
-    @VisibleForTesting
-    public static FileChannel openFileChannel(RandomAccessFile randomAccessFile) {
-        if (randomAccessFile == null) {
-            throw new IllegalArgumentException("Input cannot be null");
-        }
-
-        return randomAccessFile.getChannel();
-    }
 }

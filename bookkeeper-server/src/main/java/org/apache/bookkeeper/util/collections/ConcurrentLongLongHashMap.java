@@ -25,7 +25,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -909,5 +908,21 @@ public class ConcurrentLongLongHashMap {
         if (n < 0L) {
             throw new IllegalArgumentException("Keys and values must be >= 0");
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ConcurrentLongLongHashMap{");
+
+        int headerLen = sb.length();
+        forEach((k, v) -> {
+                sb.append(k).append(" => ").append(v).append(", ");
+            });
+        if (sb.length() > headerLen) {
+            sb.setLength(sb.length() - 2);
+        }
+        sb.append("}");
+        return sb.toString();
     }
 }

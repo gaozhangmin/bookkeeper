@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,6 +22,7 @@ package org.apache.bookkeeper.proto;
 
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.SERVER_SCOPE;
 import static org.apache.bookkeeper.conf.AbstractConfiguration.PERMITTED_STARTUP_USERS;
+
 import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBufAllocator;
 import java.io.IOException;
@@ -101,8 +102,9 @@ public class BookieServer {
 
         shFactory = SecurityProviderFactoryFactory
                 .getSecurityProviderFactory(conf.getTLSProviderFactoryClass());
+
         this.requestProcessor = new BookieRequestProcessor(conf, bookie,
-                statsLogger.scope(SERVER_SCOPE), shFactory, allocator);
+                statsLogger.scope(SERVER_SCOPE), shFactory, allocator, nettyServer.allChannels);
         this.nettyServer.setRequestProcessor(this.requestProcessor);
     }
 
@@ -254,7 +256,7 @@ public class BookieServer {
             // when it notices the bookie is not running any more.
             setUncaughtExceptionHandler((thread, cause) -> {
                 LOG.info("BookieDeathWatcher exited loop due to uncaught exception from thread {}",
-                    thread.getName(), cause);
+                        thread.getName(), cause);
                 shutdown();
             });
         }

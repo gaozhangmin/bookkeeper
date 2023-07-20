@@ -27,7 +27,6 @@ import static org.mockito.Mockito.mock;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
-
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -89,7 +88,7 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
 
         @Override
         public void checkpointComplete(Checkpoint checkpoint, boolean compact)
-            throws IOException {
+                throws IOException {
             log.info("Complete checkpoint : {}", checkpoint);
         }
     }
@@ -136,12 +135,12 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
 
         // if the SortedLedgerStorage need not to change bookie's state, pass StateManager==null is ok
         this.storage.initialize(
-            conf,
-            mock(LedgerManager.class),
-            ledgerDirsManager,
-            ledgerDirsManager,
-            NullStatsLogger.INSTANCE,
-            UnpooledByteBufAllocator.DEFAULT);
+                conf,
+                mock(LedgerManager.class),
+                ledgerDirsManager,
+                ledgerDirsManager,
+                NullStatsLogger.INSTANCE,
+                UnpooledByteBufAllocator.DEFAULT);
         this.storage.setCheckpointer(checkpointer);
         this.storage.setCheckpointSource(checkpointSrc);
     }
@@ -224,12 +223,11 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
         });
 
         // simulate entry log is rotated (due to compaction)
-        EntryLogManagerForSingleEntryLog entryLogManager = (EntryLogManagerForSingleEntryLog) storage.getEntryLogger()
-                .getEntryLogManager();
-        entryLogManager.createNewLog(EntryLogger.UNASSIGNED_LEDGERID);
-        long leastUnflushedLogId = storage.getEntryLogger().getLeastUnflushedLogId();
+        DefaultEntryLogger elogger = storage.getEntryLogger();
+        EntryLogManagerForSingleEntryLog entryLogManager =
+                (EntryLogManagerForSingleEntryLog) elogger.getEntryLogManager();
+        entryLogManager.createNewLog(DefaultEntryLogger.UNASSIGNED_LEDGERID);
         long currentLogId = entryLogManager.getCurrentLogId();
-        log.info("Least unflushed entry log : current = {}, leastUnflushed = {}", currentLogId, leastUnflushedLogId);
 
         readyLatch.countDown();
         assertNull(checkpoints.poll());
@@ -245,9 +243,9 @@ public class SortedLedgerStorageCheckpointTest extends LedgerStorageTestBase {
         assertEquals(new TestCheckpoint(100), storage.memTable.kvmap.cp);
         assertEquals(0, storage.memTable.kvmap.size());
         assertTrue(
-            "current log " + currentLogId + " contains entries added from memtable should be forced to disk"
-            + " but least unflushed log is " + storage.getEntryLogger().getLeastUnflushedLogId(),
-            storage.getEntryLogger().getLeastUnflushedLogId() > currentLogId);
+                "current log " + currentLogId + " contains entries added from memtable should be forced to disk"
+                        + " but flushed logs are " + elogger.getFlushedLogIds(),
+                elogger.getFlushedLogIds().contains(currentLogId));
     }
 
 }

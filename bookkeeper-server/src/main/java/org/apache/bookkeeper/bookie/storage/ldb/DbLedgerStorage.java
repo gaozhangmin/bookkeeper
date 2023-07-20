@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,51 +22,54 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+// CHECKSTYLE.OFF: IllegalImport
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Maps;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.util.concurrent.DefaultThreadFactory;
-//CHECKSTYLE.OFF: IllegalImport
 import io.netty.util.internal.PlatformDependent;
-//CHECKSTYLE.ON: IllegalImport
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.PrimitiveIterator.OfLong;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.Checkpointer;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger;
 import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.bookie.LedgerCache;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.LedgerStorage;
 import org.apache.bookkeeper.bookie.StateManager;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory.DbConfigType;
 import org.apache.bookkeeper.bookie.storage.ldb.SingleDirectoryDbLedgerStorage.LedgerLoggerProcessor;
 import org.apache.bookkeeper.common.util.MathUtils;
 import org.apache.bookkeeper.common.util.Watcher;
+import org.apache.bookkeeper.common.util.nativeio.NativeIOImpl;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.slogger.slf4j.Slf4jSlogger;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.annotations.StatsDoc;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.commons.lang3.StringUtils;
+// CHECKSTYLE.ON: IllegalImport
 
 
 /**
@@ -76,20 +79,41 @@ import org.apache.commons.lang3.StringUtils;
 public class DbLedgerStorage implements LedgerStorage {
 
     public static final String WRITE_CACHE_MAX_SIZE_MB = "dbStorage_writeCacheMaxSizeMb";
-
     public static final String READ_AHEAD_CACHE_MAX_SIZE_MB = "dbStorage_readAheadCacheMaxSizeMb";
+    public static final String DIRECT_IO_ENTRYLOGGER = "dbStorage_directIOEntryLogger";
+    public static final String DIRECT_IO_ENTRYLOGGER_TOTAL_WRITEBUFFER_SIZE_MB =
+            "dbStorage_directIOEntryLoggerTotalWriteBufferSizeMB";
+    public static final String DIRECT_IO_ENTRYLOGGER_TOTAL_READBUFFER_SIZE_MB =
+            "dbStorage_directIOEntryLoggerTotalReadBufferSizeMB";
+    public static final String DIRECT_IO_ENTRYLOGGER_READBUFFER_SIZE_MB =
+            "dbStorage_directIOEntryLoggerReadBufferSizeMB";
+    public static final String DIRECT_IO_ENTRYLOGGER_MAX_FD_CACHE_TIME_SECONDS =
+            "dbStorage_directIOEntryLoggerMaxFdCacheTimeSeconds";
 
     static final String MAX_THROTTLE_TIME_MILLIS = "dbStorage_maxThrottleTimeMs";
 
     private static final int MB = 1024 * 1024;
 
-    private static final long DEFAULT_WRITE_CACHE_MAX_SIZE_MB = (long) (0.25 * PlatformDependent.estimateMaxDirectMemory())
-            / MB;
-    private static final long DEFAULT_READ_CACHE_MAX_SIZE_MB = (long) (0.25 * PlatformDependent.estimateMaxDirectMemory())
-            / MB;
+    private static final long DEFAULT_WRITE_CACHE_MAX_SIZE_MB =
+            (long) (0.25 * PlatformDependent.estimateMaxDirectMemory()) / MB;
+    private static final long DEFAULT_READ_CACHE_MAX_SIZE_MB =
+            (long) (0.25 * PlatformDependent.estimateMaxDirectMemory()) / MB;
 
     static final String READ_AHEAD_CACHE_BATCH_SIZE = "dbStorage_readAheadCacheBatchSize";
+    static final String READ_AHEAD_CACHE_BATCH_BYTES_SIZE = "dbStorage_readAheadCacheBatchBytesSize";
     private static final int DEFAULT_READ_AHEAD_CACHE_BATCH_SIZE = 100;
+    // the default value is -1. this feature(limit of read ahead bytes) is disabled
+    private static final int DEFAULT_READ_AHEAD_CACHE_BATCH_BYTES_SIZE = -1;
+
+    private static final long DEFAULT_DIRECT_IO_TOTAL_WRITEBUFFER_SIZE_MB =
+            (long) (0.125 * PlatformDependent.estimateMaxDirectMemory())
+                    / MB;
+    private static final long DEFAULT_DIRECT_IO_TOTAL_READBUFFER_SIZE_MB =
+            (long) (0.125 * PlatformDependent.estimateMaxDirectMemory())
+                    / MB;
+    private static final long DEFAULT_DIRECT_IO_READBUFFER_SIZE_MB = 8;
+
+    private static final int DEFAULT_DIRECT_IO_MAX_FD_CACHE_TIME_SECONDS = 300;
 
     // use the storage assigned to ledger 0 for flags.
     // if the storage configuration changes, the flags may be lost
@@ -98,8 +122,8 @@ public class DbLedgerStorage implements LedgerStorage {
     private int numberOfDirs;
     private List<SingleDirectoryDbLedgerStorage> ledgerStorageList;
 
-    // Keep 1 single Bookie GC thread so the the compactions from multiple individual directories are serialized
-    private ScheduledExecutorService gcExecutor;
+    private ExecutorService entryLoggerWriteExecutor = null;
+    private ExecutorService entryLoggerFlushExecutor = null;
 
     protected ByteBufAllocator allocator;
 
@@ -127,6 +151,7 @@ public class DbLedgerStorage implements LedgerStorage {
                 DEFAULT_WRITE_CACHE_MAX_SIZE_MB) * MB;
         long readCacheMaxSize = getLongVariableOrDefault(conf, READ_AHEAD_CACHE_MAX_SIZE_MB,
                 DEFAULT_READ_CACHE_MAX_SIZE_MB) * MB;
+        boolean directIOEntryLogger = getBooleanVariableOrDefault(conf, DIRECT_IO_ENTRYLOGGER, false);
 
         this.allocator = allocator;
         this.numberOfDirs = ledgerDirsManager.getAllLedgerDirs().size();
@@ -147,8 +172,8 @@ public class DbLedgerStorage implements LedgerStorage {
         long perDirectoryWriteCacheSize = writeCacheMaxSize / numberOfDirs;
         long perDirectoryReadCacheSize = readCacheMaxSize / numberOfDirs;
         int readAheadCacheBatchSize = conf.getInt(READ_AHEAD_CACHE_BATCH_SIZE, DEFAULT_READ_AHEAD_CACHE_BATCH_SIZE);
-
-        gcExecutor = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("GarbageCollector"));
+        long readAheadCacheBatchBytesSize = conf.getInt(READ_AHEAD_CACHE_BATCH_BYTES_SIZE,
+                DEFAULT_READ_AHEAD_CACHE_BATCH_BYTES_SIZE);
 
         ledgerStorageList = Lists.newArrayList();
         for (int i = 0; i < ledgerDirsManager.getAllLedgerDirs().size(); i++) {
@@ -158,17 +183,23 @@ public class DbLedgerStorage implements LedgerStorage {
             File[] lDirs = new File[1];
             // Remove the `/current` suffix which will be appended again by LedgersDirManager
             lDirs[0] = ledgerDir.getParentFile();
-            LedgerDirsManager ldm = new LedgerDirsManager(conf, lDirs, ledgerDirsManager.getDiskChecker(), statsLogger);
+            LedgerDirsManager ldm = new LedgerDirsManager(conf, lDirs, ledgerDirsManager.getDiskChecker(),
+                    NullStatsLogger.INSTANCE);
 
             // Create a index dirs manager for the single directory
             File[] iDirs = new File[1];
             // Remove the `/current` suffix which will be appended again by LedgersDirManager
             iDirs[0] = indexDir.getParentFile();
-            LedgerDirsManager idm = new LedgerDirsManager(conf, iDirs, indexDirsManager.getDiskChecker(), statsLogger);
+            LedgerDirsManager idm = new LedgerDirsManager(conf, iDirs, indexDirsManager.getDiskChecker(),
+                    NullStatsLogger.INSTANCE);
 
-            ledgerStorageList.add(newSingleDirectoryDbLedgerStorage(conf, ledgerManager, ldm, idm,
-                    statsLogger, gcExecutor, perDirectoryWriteCacheSize,
-                    perDirectoryReadCacheSize, readAheadCacheBatchSize));
+            EntryLogger entrylogger;
+            entrylogger = new DefaultEntryLogger(conf, ldm, null, statsLogger, allocator);
+            ledgerStorageList.add(newSingleDirectoryDbLedgerStorage(conf, ledgerManager, ldm,
+                    idm, entrylogger,
+                    statsLogger, perDirectoryWriteCacheSize,
+                    perDirectoryReadCacheSize,
+                    readAheadCacheBatchSize, readAheadCacheBatchBytesSize));
             ldm.getListeners().forEach(ledgerDirsManager::addLedgerDirsListener);
             if (!lDirs[0].getPath().equals(iDirs[0].getPath())) {
                 idm.getListeners().forEach(indexDirsManager::addLedgerDirsListener);
@@ -205,13 +236,13 @@ public class DbLedgerStorage implements LedgerStorage {
 
     @VisibleForTesting
     protected SingleDirectoryDbLedgerStorage newSingleDirectoryDbLedgerStorage(ServerConfiguration conf,
-            LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
-            StatsLogger statsLogger, ScheduledExecutorService gcExecutor, long writeCacheSize, long readCacheSize,
-            int readAheadCacheBatchSize)
+                                                                               LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
+                                                                               EntryLogger entryLogger, StatsLogger statsLogger, long writeCacheSize, long readCacheSize,
+                                                                               int readAheadCacheBatchSize, long readAheadCacheBatchBytesSize)
             throws IOException {
-        return new SingleDirectoryDbLedgerStorage(conf, ledgerManager, ledgerDirsManager, indexDirsManager,
-                                                  statsLogger, allocator, gcExecutor, writeCacheSize, readCacheSize,
-                                                  readAheadCacheBatchSize);
+        return new SingleDirectoryDbLedgerStorage(conf, ledgerManager, ledgerDirsManager, indexDirsManager, entryLogger,
+                statsLogger, allocator, writeCacheSize, readCacheSize,
+                readAheadCacheBatchSize, readAheadCacheBatchBytesSize);
     }
 
     @Override
@@ -236,6 +267,13 @@ public class DbLedgerStorage implements LedgerStorage {
     public void shutdown() throws InterruptedException {
         for (LedgerStorage ls : ledgerStorageList) {
             ls.shutdown();
+        }
+
+        if (entryLoggerWriteExecutor != null) {
+            entryLoggerWriteExecutor.shutdown();
+        }
+        if (entryLoggerFlushExecutor != null) {
+            entryLoggerFlushExecutor.shutdown();
         }
     }
 
@@ -287,7 +325,7 @@ public class DbLedgerStorage implements LedgerStorage {
 
     @Override
     public boolean waitForLastAddConfirmedUpdate(long ledgerId, long previousLAC,
-            Watcher<LastAddConfirmedUpdateNotification> watcher) throws IOException {
+                                                 Watcher<LastAddConfirmedUpdateNotification> watcher) throws IOException {
         return getLedgerStorage(ledgerId).waitForLastAddConfirmedUpdate(ledgerId, previousLAC, watcher);
     }
 
@@ -381,7 +419,7 @@ public class DbLedgerStorage implements LedgerStorage {
      * @throws IOException
      */
     public static void readLedgerIndexEntries(long ledgerId, ServerConfiguration serverConf,
-            LedgerLoggerProcessor processor) throws IOException {
+                                              LedgerLoggerProcessor processor) throws IOException {
 
         checkNotNull(serverConf, "ServerConfiguration can't be null");
         checkNotNull(processor, "LedgerLoggger info processor can't null");
@@ -474,9 +512,50 @@ public class DbLedgerStorage implements LedgerStorage {
     }
 
     @Override
+    public void entryLocationCompact() {
+        ledgerStorageList.forEach(SingleDirectoryDbLedgerStorage::entryLocationCompact);
+    }
+
+    @Override
+    public void entryLocationCompact(List<String> locations) {
+        for (SingleDirectoryDbLedgerStorage ledgerStorage : ledgerStorageList) {
+            String entryLocation = ledgerStorage.getEntryLocationDBPath().get(0);
+            if (locations.contains(entryLocation)) {
+                ledgerStorage.entryLocationCompact();
+            }
+        }
+    }
+
+    @Override
+    public boolean isEntryLocationCompacting() {
+        return ledgerStorageList.stream().anyMatch(SingleDirectoryDbLedgerStorage::isEntryLocationCompacting);
+    }
+
+    @Override
+    public Map<String, Boolean> isEntryLocationCompacting(List<String> locations) {
+        HashMap<String, Boolean> isCompacting = Maps.newHashMap();
+        for (SingleDirectoryDbLedgerStorage ledgerStorage : ledgerStorageList) {
+            String entryLocation = ledgerStorage.getEntryLocationDBPath().get(0);
+            if (locations.contains(entryLocation)) {
+                isCompacting.put(entryLocation, ledgerStorage.isEntryLocationCompacting());
+            }
+        }
+        return isCompacting;
+    }
+
+    @Override
+    public List<String> getEntryLocationDBPath() {
+        List<String> allEntryLocationDBPath = Lists.newArrayList();
+        for (SingleDirectoryDbLedgerStorage ledgerStorage : ledgerStorageList) {
+            allEntryLocationDBPath.addAll(ledgerStorage.getEntryLocationDBPath());
+        }
+        return allEntryLocationDBPath;
+    }
+
+    @Override
     public List<GarbageCollectionStatus> getGarbageCollectionStatus() {
         return ledgerStorageList.stream()
-            .map(single -> single.getGarbageCollectionStatus().get(0)).collect(Collectors.toList());
+                .map(single -> single.getGarbageCollectionStatus().get(0)).collect(Collectors.toList());
     }
 
     static long getLongVariableOrDefault(ServerConfiguration conf, String keyName, long defaultValue) {
@@ -489,6 +568,19 @@ public class DbLedgerStorage implements LedgerStorage {
             return defaultValue;
         } else {
             return conf.getLong(keyName);
+        }
+    }
+
+    static boolean getBooleanVariableOrDefault(ServerConfiguration conf, String keyName, boolean defaultValue) {
+        Object obj = conf.getProperty(keyName);
+        if (obj instanceof Boolean) {
+            return (Boolean) obj;
+        } else if (obj == null) {
+            return defaultValue;
+        } else if (StringUtils.isEmpty(conf.getString(keyName))) {
+            return defaultValue;
+        } else {
+            return conf.getBoolean(keyName);
         }
     }
 

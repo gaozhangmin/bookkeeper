@@ -22,7 +22,6 @@
 package org.apache.bookkeeper.bookie;
 
 import com.google.common.util.concurrent.RateLimiter;
-
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,7 +35,10 @@ public abstract class AbstractLogCompactor {
     protected final ServerConfiguration conf;
     protected final Throttler throttler;
 
-    interface LogRemovalListener {
+    /**
+     * LogRemovalListener.
+     */
+    public interface LogRemovalListener {
         void removeEntryLog(long logToRemove);
     }
 
@@ -60,7 +62,10 @@ public abstract class AbstractLogCompactor {
      */
     public void cleanUpAndRecover() {}
 
-    static class Throttler {
+    /**
+     * class Throttler.
+     */
+    public static class Throttler {
         private final RateLimiter rateLimiter;
         private final boolean isThrottleByBytes;
         private final AtomicBoolean cancelled = new AtomicBoolean(false);

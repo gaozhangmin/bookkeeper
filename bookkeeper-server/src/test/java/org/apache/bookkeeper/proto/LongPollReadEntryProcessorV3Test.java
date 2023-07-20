@@ -27,6 +27,7 @@ import static org.mockito.Mockito.when;
 import com.google.protobuf.ByteString;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.HashedWheelTimer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -68,22 +69,28 @@ public class LongPollReadEntryProcessorV3Test {
     @Test
     public void testWatchIsCancelledOnTimeout() throws Exception {
         Request request = Request.newBuilder()
-            .setHeader(BKPacketHeader.newBuilder()
-                       .setTxnId(System.currentTimeMillis())
-                       .setVersion(ProtocolVersion.VERSION_THREE)
-                       .setOperation(OperationType.READ_ENTRY)
-                       .build())
-            .setReadRequest(ReadRequest.newBuilder()
-                            .setLedgerId(10)
-                            .setEntryId(1)
-                            .setMasterKey(ByteString.copyFrom(new byte[0]))
-                            .setPreviousLAC(0)
-                            .setTimeOut(1)
-                            .build())
-            .build();
+                .setHeader(BKPacketHeader.newBuilder()
+                        .setTxnId(System.currentTimeMillis())
+                        .setVersion(ProtocolVersion.VERSION_THREE)
+                        .setOperation(OperationType.READ_ENTRY)
+                        .build())
+                .setReadRequest(ReadRequest.newBuilder()
+                        .setLedgerId(10)
+                        .setEntryId(1)
+                        .setMasterKey(ByteString.copyFrom(new byte[0]))
+                        .setPreviousLAC(0)
+                        .setTimeOut(1)
+                        .build())
+                .build();
 
         Channel channel = mock(Channel.class);
         when(channel.isOpen()).thenReturn(true);
+
+        BookieRequestHandler requestHandler = mock(BookieRequestHandler.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+        when(ctx.channel()).thenReturn(channel);
+        when(requestHandler.ctx()).thenReturn(ctx);
+
         Bookie bookie = mock(Bookie.class);
 
         BookieRequestProcessor requestProcessor = mock(BookieRequestProcessor.class);
@@ -91,22 +98,22 @@ public class LongPollReadEntryProcessorV3Test {
         when(requestProcessor.getRequestStats()).thenReturn(new RequestStats(NullStatsLogger.INSTANCE));
 
         when(bookie.waitForLastAddConfirmedUpdate(anyLong(), anyLong(), any()))
-            .thenReturn(true);
+                .thenReturn(true);
         when(bookie.readEntry(anyLong(), anyLong())).thenReturn(Unpooled.buffer());
         when(bookie.readLastAddConfirmed(anyLong())).thenReturn(Long.valueOf(1));
 
         CompletableFuture<Void> cancelFuture = new CompletableFuture<>();
 
         doAnswer(invocationOnMock -> {
-                cancelFuture.complete(null);
-                return null;
-            }).when(bookie).cancelWaitForLastAddConfirmedUpdate(anyLong(), any());
+            cancelFuture.complete(null);
+            return null;
+        }).when(bookie).cancelWaitForLastAddConfirmedUpdate(anyLong(), any());
 
         LongPollReadEntryProcessorV3 processor = new LongPollReadEntryProcessorV3(
-            request,
-            channel,
-            requestProcessor,
-            executor, executor, timer);
+                request,
+                requestHandler,
+                requestProcessor,
+                executor, executor, timer);
 
         processor.run();
 

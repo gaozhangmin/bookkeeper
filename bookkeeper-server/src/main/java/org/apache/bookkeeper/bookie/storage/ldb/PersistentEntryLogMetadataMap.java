@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static org.apache.bookkeeper.util.BookKeeperConstants.METADATA_CACHE;
+
 import io.netty.util.concurrent.FastThreadLocal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -31,7 +32,6 @@ import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
-
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
 import org.apache.bookkeeper.bookie.EntryLogMetadata;
@@ -224,6 +224,21 @@ public class PersistentEntryLogMetadataMap implements EntryLogMetadataMap {
         throwIfClosed();
         try {
             return (int) metadataMapDB.count();
+        } catch (IOException e) {
+            throw new EntryLogMetadataMapException(e);
+        }
+    }
+
+    @Override
+    public void clear() throws EntryLogMetadataMapException {
+        try {
+            try (KeyValueStorage.Batch b = metadataMapDB.newBatch();
+                 CloseableIterator<byte[]> itr = metadataMapDB.keys()) {
+                while (itr.hasNext()) {
+                    b.remove(itr.next());
+                }
+                b.flush();
+            }
         } catch (IOException e) {
             throw new EntryLogMetadataMapException(e);
         }

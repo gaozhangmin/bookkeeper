@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -24,25 +24,36 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
 import com.google.common.collect.Lists;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ReferenceCountUtil;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
-
-import org.apache.bookkeeper.bookie.*;
+import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.Bookie.NoEntryException;
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.BookieImpl;
+import org.apache.bookkeeper.bookie.CheckpointSource;
+import org.apache.bookkeeper.bookie.CheckpointSourceList;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger;
+import org.apache.bookkeeper.bookie.EntryLocation;
+import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.LedgerStorage;
+import org.apache.bookkeeper.bookie.LogMark;
+import org.apache.bookkeeper.bookie.TestBookieImpl;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,10 +62,10 @@ import org.slf4j.LoggerFactory;
  */
 public class DbLedgerStorageTest {
     private static final Logger log = LoggerFactory.getLogger(DbLedgerStorageTest.class);
-    private DbLedgerStorage storage;
-    private File tmpDir;
-    private LedgerDirsManager ledgerDirsManager;
-    private ServerConfiguration conf;
+    protected DbLedgerStorage storage;
+    protected File tmpDir;
+    protected LedgerDirsManager ledgerDirsManager;
+    protected ServerConfiguration conf;
 
     @Before
     public void setup() throws Exception {
@@ -73,6 +84,10 @@ public class DbLedgerStorageTest {
 
         ledgerDirsManager = bookie.getLedgerDirsManager();
         storage = (DbLedgerStorage) bookie.getLedgerStorage();
+
+        storage.getLedgerStorageList().forEach(singleDirectoryDbLedgerStorage -> {
+            assertTrue(singleDirectoryDbLedgerStorage.getEntryLogger() instanceof DefaultEntryLogger);
+        });
     }
 
     @After
@@ -215,6 +230,7 @@ public class DbLedgerStorageTest {
         entry3.writeBytes("entry-3".getBytes());
         storage.addEntry(entry3);
 
+
         // Simulate bookie compaction
         SingleDirectoryDbLedgerStorage singleDirStorage = ((DbLedgerStorage) storage).getLedgerStorageList().get(0);
         EntryLogger entryLogger = singleDirStorage.getEntryLogger();
@@ -223,8 +239,10 @@ public class DbLedgerStorageTest {
         newEntry3.writeLong(4); // ledger id
         newEntry3.writeLong(3); // entry id
         newEntry3.writeBytes("new-entry-3".getBytes());
-        long location = entryLogger.addEntry(4L, newEntry3, false);
+        long location = entryLogger.addEntry(4L, newEntry3);
+        newEntry3.resetReaderIndex();
 
+        storage.flush();
         List<EntryLocation> locations = Lists.newArrayList(new EntryLocation(4, 3, location));
         singleDirStorage.updateEntriesLocations(locations);
 
@@ -252,6 +270,7 @@ public class DbLedgerStorageTest {
 
         bookie.shutdown();
     }
+
     @Test
     public void testRewritingEntries() throws Exception {
         storage.setMasterKey(1, "key".getBytes());
@@ -346,7 +365,7 @@ public class DbLedgerStorageTest {
 
         ByteBuf res = storage.getEntry(1, 2);
         assertEquals(entry2, res);
-        res.release();
+        ReferenceCountUtil.release(res);
 
         storage.flush();
 
@@ -359,7 +378,7 @@ public class DbLedgerStorageTest {
 
         res = storage.getEntry(1, 2);
         assertEquals(entry2, res);
-        res.release();
+        ReferenceCountUtil.release(res);
 
         ByteBuf entry1 = Unpooled.buffer(1024);
         entry1.writeLong(1); // ledger id
@@ -370,21 +389,21 @@ public class DbLedgerStorageTest {
 
         res = storage.getEntry(1, 1);
         assertEquals(entry1, res);
-        res.release();
+        ReferenceCountUtil.release(res);
 
         res = storage.getEntry(1, 2);
         assertEquals(entry2, res);
-        res.release();
+        ReferenceCountUtil.release(res);
 
         storage.flush();
 
         res = storage.getEntry(1, 1);
         assertEquals(entry1, res);
-        res.release();
+        ReferenceCountUtil.release(res);
 
         res = storage.getEntry(1, 2);
         assertEquals(entry2, res);
-        res.release();
+        ReferenceCountUtil.release(res);
     }
 
     @Test
@@ -597,18 +616,18 @@ public class DbLedgerStorageTest {
 
         storage.setStorageStateFlag(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK);
         assertTrue(storage.getStorageStateFlags()
-                   .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
+                .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
 
         storage.shutdown();
         Bookie restartedBookie1 = new TestBookieImpl(conf);
         DbLedgerStorage restartedStorage1 = (DbLedgerStorage) restartedBookie1.getLedgerStorage();
         try {
             assertTrue(restartedStorage1.getStorageStateFlags()
-                   .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
+                    .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
             restartedStorage1.clearStorageStateFlag(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK);
 
             assertFalse(restartedStorage1.getStorageStateFlags()
-                   .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
+                    .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
 
         } finally {
             restartedStorage1.shutdown();
@@ -618,7 +637,7 @@ public class DbLedgerStorageTest {
         DbLedgerStorage restartedStorage2 = (DbLedgerStorage) restartedBookie2.getLedgerStorage();
         try {
             assertFalse(restartedStorage2.getStorageStateFlags()
-                   .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
+                    .contains(LedgerStorage.StorageState.NEEDS_INTEGRITY_CHECK));
         } finally {
             restartedStorage2.shutdown();
         }

@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,7 +22,6 @@ package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import io.netty.channel.Channel;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.net.BookieId;
@@ -39,9 +38,9 @@ import org.slf4j.LoggerFactory;
 class ForceLedgerProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(ForceLedgerProcessorV3.class);
 
-    public ForceLedgerProcessorV3(Request request, Channel channel,
-                             BookieRequestProcessor requestProcessor) {
-        super(request, channel, requestProcessor);
+    public ForceLedgerProcessorV3(Request request, BookieRequestHandler requestHandler,
+                                  BookieRequestProcessor requestProcessor) {
+        super(request, requestHandler, requestProcessor);
     }
 
     // Returns null if there is no exception thrown
@@ -60,45 +59,45 @@ class ForceLedgerProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
         BookkeeperInternalCallbacks.WriteCallback wcb =
                 (int rc, long ledgerId1, long entryId, BookieId addr, Object ctx) -> {
 
-            checkArgument(entryId == BookieImpl.METAENTRY_ID_FORCE_LEDGER,
-                    "entryId must be METAENTRY_ID_FORCE_LEDGER but was {}", entryId);
+                    checkArgument(entryId == BookieImpl.METAENTRY_ID_FORCE_LEDGER,
+                            "entryId must be METAENTRY_ID_FORCE_LEDGER but was {}", entryId);
 
-            checkArgument(ledgerId1 == ledgerId,
-                    "ledgerId must be {} but was {}", ledgerId, ledgerId1);
+                    checkArgument(ledgerId1 == ledgerId,
+                            "ledgerId must be {} but was {}", ledgerId, ledgerId1);
 
-            if (BookieProtocol.EOK == rc) {
-                requestProcessor.getRequestStats().getForceLedgerStats()
-                        .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos),
-                                TimeUnit.NANOSECONDS);
-            } else {
-                requestProcessor.getRequestStats().getForceLedgerStats()
-                        .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos),
-                                TimeUnit.NANOSECONDS);
-            }
+                    if (BookieProtocol.EOK == rc) {
+                        requestProcessor.getRequestStats().getForceLedgerStats()
+                                .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos),
+                                        TimeUnit.NANOSECONDS);
+                    } else {
+                        requestProcessor.getRequestStats().getForceLedgerStats()
+                                .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos),
+                                        TimeUnit.NANOSECONDS);
+                    }
 
-            StatusCode status;
-            switch (rc) {
-                case BookieProtocol.EOK:
-                    status = StatusCode.EOK;
-                    break;
-                case BookieProtocol.EIO:
-                    status = StatusCode.EIO;
-                    break;
-                default:
-                    status = StatusCode.EUA;
-                    break;
-            }
-            forceLedgerResponse.setStatus(status);
-            Response.Builder response = Response.newBuilder()
-                    .setHeader(getHeader())
-                    .setStatus(forceLedgerResponse.getStatus())
-                    .setForceLedgerResponse(forceLedgerResponse);
-            Response resp = response.build();
-            sendResponse(status, resp, requestProcessor.getRequestStats().getForceLedgerRequestStats());
-        };
+                    StatusCode status;
+                    switch (rc) {
+                        case BookieProtocol.EOK:
+                            status = StatusCode.EOK;
+                            break;
+                        case BookieProtocol.EIO:
+                            status = StatusCode.EIO;
+                            break;
+                        default:
+                            status = StatusCode.EUA;
+                            break;
+                    }
+                    forceLedgerResponse.setStatus(status);
+                    Response.Builder response = Response.newBuilder()
+                            .setHeader(getHeader())
+                            .setStatus(forceLedgerResponse.getStatus())
+                            .setForceLedgerResponse(forceLedgerResponse);
+                    Response resp = response.build();
+                    sendResponse(status, resp, requestProcessor.getRequestStats().getForceLedgerRequestStats());
+                };
         StatusCode status = null;
         try {
-            requestProcessor.getBookie().forceLedger(ledgerId, wcb, channel);
+            requestProcessor.getBookie().forceLedger(ledgerId, wcb, requestHandler);
             status = StatusCode.EOK;
         } catch (Throwable t) {
             logger.error("Unexpected exception while forcing ledger {} : ", ledgerId, t);
@@ -116,7 +115,7 @@ class ForceLedgerProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         ForceLedgerResponse forceLedgerResponse = getForceLedgerResponse();
         if (null != forceLedgerResponse) {
             Response.Builder response = Response.newBuilder()
@@ -125,9 +124,9 @@ class ForceLedgerProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
                     .setForceLedgerResponse(forceLedgerResponse);
             Response resp = response.build();
             sendResponse(
-                forceLedgerResponse.getStatus(),
-                resp,
-                requestProcessor.getRequestStats().getForceLedgerRequestStats());
+                    forceLedgerResponse.getStatus(),
+                    resp,
+                    requestProcessor.getRequestStats().getForceLedgerRequestStats());
         }
     }
 

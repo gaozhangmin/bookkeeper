@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,7 +21,7 @@
 
 package org.apache.bookkeeper.bookie;
 
-import static org.apache.bookkeeper.bookie.EntryLogger.UNASSIGNED_LEDGERID;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.UNASSIGNED_LEDGERID;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
@@ -31,8 +31,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bookkeeper.bookie.EntryLogger.BufferedLogChannel;
-import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger.BufferedLogChannel;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
@@ -41,14 +41,14 @@ abstract class EntryLogManagerBase implements EntryLogManager {
     volatile List<BufferedLogChannel> rotatedLogChannels;
     final EntryLoggerAllocator entryLoggerAllocator;
     final LedgerDirsManager ledgerDirsManager;
-    private final List<EntryLogger.EntryLogListener> listeners;
+    private final List<DefaultEntryLogger.EntryLogListener> listeners;
     /**
      * The maximum size of a entry logger file.
      */
     final long logSizeLimit;
 
     EntryLogManagerBase(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
-            EntryLoggerAllocator entryLoggerAllocator, List<EntryLogger.EntryLogListener> listeners) {
+            EntryLoggerAllocator entryLoggerAllocator, List<DefaultEntryLogger.EntryLogListener> listeners) {
         this.ledgerDirsManager = ledgerDirsManager;
         this.entryLoggerAllocator = entryLoggerAllocator;
         this.listeners = listeners;
@@ -126,7 +126,9 @@ abstract class EntryLogManagerBase implements EntryLogManager {
     void flushLogChannel(BufferedLogChannel logChannel, boolean forceMetadata) throws IOException {
         if (logChannel != null) {
             logChannel.flushAndForceWrite(forceMetadata);
-            log.debug("Flush and sync current entry logger {}", logChannel.getLogId());
+            if (log.isDebugEnabled()) {
+                log.debug("Flush and sync current entry logger {}", logChannel.getLogId());
+            }
         }
     }
 
@@ -163,11 +165,14 @@ abstract class EntryLogManagerBase implements EntryLogManager {
             log.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
                     logChannel.getLogId(), rotatedLogChannels);
             for (EntryLogListener listener : listeners) {
-                listener.onRotateEntryLog();
+                listener.onRotateEntryLog(newLogChannel.getLogId());
             }
         } else {
-            setCurrentLogForLedgerAndAddToRotate(ledgerId,
-                    entryLoggerAllocator.createNewLog(selectDirForNextEntryLog()));
+            BufferedLogChannel newLogChannel = entryLoggerAllocator.createNewLog(selectDirForNextEntryLog());
+            setCurrentLogForLedgerAndAddToRotate(ledgerId, newLogChannel);
+            for (EntryLogListener listener : listeners) {
+                listener.onRotateEntryLog(newLogChannel.getLogId());
+            }
         }
     }
 

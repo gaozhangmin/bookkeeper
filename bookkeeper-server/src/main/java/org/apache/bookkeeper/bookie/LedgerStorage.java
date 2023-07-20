@@ -24,19 +24,19 @@ package org.apache.bookkeeper.bookie;
 import com.google.common.util.concurrent.RateLimiter;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.PrimitiveIterator;
-
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 /**
@@ -51,13 +51,25 @@ public interface LedgerStorage {
      * @param ledgerManager
      * @param ledgerDirsManager
      */
-    void initialize(ServerConfiguration conf,
-                    LedgerManager ledgerManager,
-                    LedgerDirsManager ledgerDirsManager,
-                    LedgerDirsManager indexDirsManager,
-                    StatsLogger statsLogger,
-                    ByteBufAllocator allocator)
-            throws IOException;
+    default void initializeWithCold(ServerConfiguration conf,
+                                    LedgerManager ledgerManager,
+                                    LedgerDirsManager ledgerDirsManager,
+                                    LedgerDirsManager indexDirsManager,
+                                    LedgerDirsManager coldLedgerDirsManager,
+                                    StatsLogger statsLogger,
+                                    ByteBufAllocator allocator) throws IOException {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    default void initialize(ServerConfiguration conf,
+                            LedgerManager ledgerManager,
+                            LedgerDirsManager ledgerDirsManager,
+                            LedgerDirsManager indexDirsManager,
+                            StatsLogger statsLogger,
+                            ByteBufAllocator allocator)
+            throws IOException {
+        throw new UnsupportedOperationException("Not implemented");
+    }
 
     void setStateManager(StateManager stateManager);
     void setCheckpointSource(CheckpointSource checkpointSource);
@@ -139,6 +151,12 @@ public interface LedgerStorage {
      * @return the entry id of the entry added
      */
     long addEntry(ByteBuf entry) throws IOException, BookieException;
+
+    default long addEntry(ByteBuf entry, boolean ackBeforeSync,
+                          BookkeeperInternalCallbacks.WriteCallback cb,
+                          Object ctx) throws InterruptedException, IOException, BookieException {
+        throw new UnsupportedOperationException("DirectDbLedgerStorage storage class only");
+    }
 
     /**
      * Read an entry from storage.
@@ -263,6 +281,26 @@ public interface LedgerStorage {
         return false;
     }
 
+    default void entryLocationCompact() {
+        return;
+    }
+
+    default void entryLocationCompact(List<String> locations) {
+        return;
+    }
+
+    default boolean isEntryLocationCompacting() {
+        return false;
+    }
+
+    default Map<String, Boolean> isEntryLocationCompacting(List<String> locations) {
+        return Collections.emptyMap();
+    }
+
+    default List<String> getEntryLocationDBPath() {
+        return Collections.emptyList();
+    }
+
     /**
      * Class for describing location of a generic inconsistency.  Implementations should
      * ensure that detail is populated with an exception which adequately describes the
@@ -322,6 +360,10 @@ public interface LedgerStorage {
         return Collections.emptyList();
     }
 
+    default List<DiskCacheDownGradeStatus> getDiskCacheDowngradeStatus() {
+        return Collections.emptyList();
+    }
+
     /**
      * Returns the primitive long iterator for entries of the ledger, stored in
      * this LedgerStorage. The returned iterator provide weakly consistent state
@@ -355,6 +397,10 @@ public interface LedgerStorage {
      * is persisted to storage when the method returns.
      */
     void clearStorageStateFlag(StorageState flags) throws IOException;
+
+    default boolean downgrading(long ledgerId) {return false;}
+
+    default void setExitListener(JournalAliveListener aliveListener) {}
 
     /**
      * StorageState flags.

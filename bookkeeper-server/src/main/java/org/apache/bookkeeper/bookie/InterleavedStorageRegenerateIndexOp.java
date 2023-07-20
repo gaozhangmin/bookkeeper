@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,7 +21,6 @@
 package org.apache.bookkeeper.bookie;
 
 import io.netty.buffer.ByteBuf;
-
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
@@ -29,8 +28,7 @@ import java.util.Map;
 import java.util.PrimitiveIterator.OfLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
+import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.checksum.DigestManager;
@@ -94,13 +92,13 @@ public class InterleavedStorageRegenerateIndexOp {
                 conf, diskChecker, NullStatsLogger.INSTANCE);
         LedgerDirsManager indexDirsManager = BookieResources.createIndexDirsManager(
                 conf, diskChecker,  NullStatsLogger.INSTANCE, ledgerDirsManager);
-        EntryLogger entryLogger = new EntryLogger(conf, ledgerDirsManager);
+        DefaultEntryLogger entryLogger = new DefaultEntryLogger(conf, ledgerDirsManager);
         final LedgerCache ledgerCache;
         if (dryRun) {
             ledgerCache = new DryRunLedgerCache();
         } else {
             ledgerCache = new LedgerCacheImpl(conf, new SnapshotMap<Long, Boolean>(),
-                                              indexDirsManager, NullStatsLogger.INSTANCE);
+                    indexDirsManager, NullStatsLogger.INSTANCE);
         }
 
         Set<Long> entryLogs = entryLogger.getEntryLogsSet();
@@ -156,11 +154,11 @@ public class InterleavedStorageRegenerateIndexOp {
                 LOG.info(" {} - No entries found", ledgerId);
             } else {
                 LOG.info(" {} - Found {} entries, from {} to {}", ledgerId,
-                         ledgerStats.getNumEntries(), ledgerStats.getFirstEntry(), ledgerStats.getLastEntry());
+                        ledgerStats.getNumEntries(), ledgerStats.getFirstEntry(), ledgerStats.getLastEntry());
             }
         }
         LOG.info("Total time: {}", DurationFormatUtils.formatDurationHMS(
-                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime)));
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime)));
     }
 
 

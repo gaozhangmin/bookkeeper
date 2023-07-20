@@ -16,20 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-plugins {
-    id 'java'
-}
-
-dependencies {
-    implementation project(':bookkeeper-slogger:api')
-    implementation depLibs.slf4j
-    testImplementation depLibs.slf4jSimple
-    testImplementation depLibs.junit
-}
-
-jar.archiveBaseName = 'bookkeeper-slogger-slf4j'
-
-jar {
-    dependsOn tasks.named("writeClasspath")
-}
-
+/**
+ * Provides a <i>Bookie</i> server that stores entries for clients.
+ */
+package org.apache.bookkeeper.bookie.storage;

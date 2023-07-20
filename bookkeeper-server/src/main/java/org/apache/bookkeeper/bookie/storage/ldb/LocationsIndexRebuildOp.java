@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,9 +21,7 @@
 package org.apache.bookkeeper.bookie.storage.ldb;
 
 import com.google.common.collect.Sets;
-
 import io.netty.buffer.ByteBuf;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -33,11 +31,12 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.bookkeeper.bookie.BookieImpl;
-import org.apache.bookkeeper.bookie.EntryLogger;
-import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory.DbConfigType;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -55,6 +54,8 @@ public class LocationsIndexRebuildOp {
     public LocationsIndexRebuildOp(ServerConfiguration conf) {
         this.conf = conf;
     }
+
+    private static final int BATCH_COMMIT_SIZE = 10_000;
 
     public void initiate() throws IOException {
         LOG.info("Starting locations index rebuilding");
@@ -80,7 +81,7 @@ public class LocationsIndexRebuildOp {
 
             File[] lDirs = new File[1];
             lDirs[0] = ledgerDir;
-            EntryLogger entryLogger = new EntryLogger(conf, new LedgerDirsManager(conf, lDirs,
+            DefaultEntryLogger entryLogger = new DefaultEntryLogger(conf, new LedgerDirsManager(conf, lDirs,
                     new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold())));
             Set<Long> entryLogs = entryLogger.getEntryLogsSet();
 
@@ -93,6 +94,8 @@ public class LocationsIndexRebuildOp {
             int totalEntryLogs = entryLogs.size();
             int completedEntryLogs = 0;
             LOG.info("Scanning {} entry logs", totalEntryLogs);
+            AtomicReference<KeyValueStorage.Batch> batch = new AtomicReference<>(newIndex.newBatch());
+            AtomicInteger count = new AtomicInteger();
 
             for (long entryLogId : entryLogs) {
                 entryLogger.scanEntryLog(entryLogId, new EntryLogScanner() {
@@ -111,7 +114,21 @@ public class LocationsIndexRebuildOp {
                         // Update the ledger index page
                         LongPairWrapper key = LongPairWrapper.get(ledgerId, entryId);
                         LongWrapper value = LongWrapper.get(location);
-                        newIndex.put(key.array, value.array);
+
+                        try {
+                            batch.get().put(key.array, value.array);
+                        } finally {
+                            key.recycle();
+                            value.recycle();
+                        }
+
+                        if (count.incrementAndGet() > BATCH_COMMIT_SIZE) {
+                            batch.get().flush();
+                            batch.get().close();
+
+                            batch.set(newIndex.newBatch());
+                            count.set(0);
+                        }
                     }
 
                     @Override
@@ -124,6 +141,9 @@ public class LocationsIndexRebuildOp {
                 LOG.info("Completed scanning of log {}.log -- {} / {}", Long.toHexString(entryLogId),
                         completedEntryLogs, totalEntryLogs);
             }
+
+            batch.get().flush();
+            batch.get().close();
 
             newIndex.sync();
             newIndex.close();

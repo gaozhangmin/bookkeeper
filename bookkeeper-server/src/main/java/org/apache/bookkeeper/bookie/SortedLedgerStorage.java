@@ -23,10 +23,8 @@ package org.apache.bookkeeper.bookie;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.List;
@@ -35,7 +33,6 @@ import java.util.PrimitiveIterator;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -54,7 +51,7 @@ import org.slf4j.LoggerFactory;
  */
 public class SortedLedgerStorage
         implements LedgerStorage, CacheCallback, SkipListFlusher,
-            CompactableLedgerStorage, EntryLogger.EntryLogListener {
+            CompactableLedgerStorage, DefaultEntryLogger.EntryLogListener {
     private static final Logger LOG = LoggerFactory.getLogger(SortedLedgerStorage.class);
 
     EntryMemTable memTable;
@@ -329,7 +326,7 @@ public class SortedLedgerStorage
     }
 
     @Override
-    public void onRotateEntryLog() {
+    public void onRotateEntryLog(long entryLogId) {
         // override the behavior at interleaved ledger storage.
         // we don't trigger any checkpoint logic when an entry log file is rotated, because entry log file rotation
         // can happen because compaction. in a sorted ledger storage, checkpoint should happen after the data is
@@ -340,8 +337,7 @@ public class SortedLedgerStorage
         return (BookieStateManager) stateManager;
     }
 
-    @Override
-    public EntryLogger getEntryLogger() {
+    public DefaultEntryLogger getEntryLogger() {
         return interleavedLedgerStorage.getEntryLogger();
     }
 

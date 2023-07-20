@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -25,13 +25,12 @@ import static org.apache.bookkeeper.bookie.storage.ldb.WriteCache.align64;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
-
+import io.netty.util.ReferenceCountUtil;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 import org.apache.bookkeeper.util.collections.ConcurrentLongLongPairHashMap;
 import org.apache.bookkeeper.util.collections.ConcurrentLongLongPairHashMap.LongPair;
 import org.slf4j.Logger;
@@ -87,7 +86,7 @@ public class ReadCache implements Closeable {
 
     @Override
     public void close() {
-        cacheSegments.forEach(ByteBuf::release);
+        cacheSegments.forEach(ReferenceCountUtil::safeRelease);
     }
 
     public void put(long ledgerId, long entryId, ByteBuf entry) {

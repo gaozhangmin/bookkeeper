@@ -30,16 +30,15 @@ import static org.junit.Assert.fail;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.FileInfoBackingCache.CachedFileInfo;
@@ -118,23 +117,23 @@ public class LedgerCacheTest {
             ledgerCache.close();
         }
         ledgerCache = ((InterleavedLedgerStorage) bookie.getLedgerStorage().getUnderlyingLedgerStorage())
-            .ledgerCache = new LedgerCacheImpl(conf, activeLedgers, bookie.getIndexDirsManager());
+                .ledgerCache = new LedgerCacheImpl(conf, activeLedgers, bookie.getIndexDirsManager());
         flushThread = new Thread() {
-                public void run() {
-                    while (true) {
-                        try {
-                            sleep(conf.getFlushInterval());
-                            ledgerCache.flushLedger(true);
-                        } catch (InterruptedException ie) {
-                            // killed by teardown
-                            Thread.currentThread().interrupt();
-                            return;
-                        } catch (Exception e) {
-                            LOG.error("Exception in flush thread", e);
-                        }
+            public void run() {
+                while (true) {
+                    try {
+                        sleep(conf.getFlushInterval());
+                        ledgerCache.flushLedger(true);
+                    } catch (InterruptedException ie) {
+                        // killed by teardown
+                        Thread.currentThread().interrupt();
+                        return;
+                    } catch (Exception e) {
+                        LOG.error("Exception in flush thread", e);
                     }
                 }
-            };
+            }
+        };
         flushThread.start();
     }
 
@@ -164,7 +163,7 @@ public class LedgerCacheTest {
         int numEntries = 10;
         // limit open files & pages
         conf.setOpenFileLimit(1).setPageLimit(2)
-            .setPageSize(8 * numEntries);
+                .setPageSize(8 * numEntries);
         // create ledger cache
         newLedgerCache();
         try {
@@ -187,7 +186,7 @@ public class LedgerCacheTest {
         int numEntries = 10;
         // limit open files & pages
         conf.setOpenFileLimit(999).setPageLimit(2)
-            .setPageSize(8 * numEntries);
+                .setPageSize(8 * numEntries);
         // create ledger cache
         newLedgerCache();
         try {
@@ -277,7 +276,7 @@ public class LedgerCacheTest {
 
         BookieImpl bookie = new TestBookieImpl(conf);
         InterleavedLedgerStorage ledgerStorage =
-            ((InterleavedLedgerStorage) bookie.getLedgerStorage().getUnderlyingLedgerStorage());
+                ((InterleavedLedgerStorage) bookie.getLedgerStorage().getUnderlyingLedgerStorage());
         LedgerCacheImpl ledgerCache = (LedgerCacheImpl) ledgerStorage.ledgerCache;
         // Create ledger index file
         ledgerStorage.setMasterKey(1, "key".getBytes());
@@ -323,10 +322,10 @@ public class LedgerCacheTest {
         ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setMetadataServiceUri(null);
         conf.setJournalDirName(journalDir.getPath())
-            .setLedgerDirNames(new String[] { ledgerDir.getPath() })
-            .setFlushInterval(1000)
-            .setPageLimit(1)
-            .setLedgerStorageClass(InterleavedLedgerStorage.class.getName());
+                .setLedgerDirNames(new String[] { ledgerDir.getPath() })
+                .setFlushInterval(1000)
+                .setPageLimit(1)
+                .setLedgerStorageClass(InterleavedLedgerStorage.class.getName());
 
         Bookie b = new TestBookieImpl(conf);
         b.start();
@@ -338,7 +337,7 @@ public class LedgerCacheTest {
         conf = TestBKConfiguration.newServerConfiguration();
         conf.setMetadataServiceUri(null);
         conf.setJournalDirName(journalDir.getPath())
-            .setLedgerDirNames(new String[] { ledgerDir.getPath() });
+                .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
         b = new TestBookieImpl(conf);
         for (int i = 1; i <= numLedgers; i++) {
@@ -347,12 +346,12 @@ public class LedgerCacheTest {
             } catch (Bookie.NoLedgerException nle) {
                 // this is fine, means the ledger was never written to the index cache
                 assertEquals("No ledger should only happen for the last ledger",
-                             i, numLedgers);
+                        i, numLedgers);
             } catch (Bookie.NoEntryException nee) {
                 // this is fine, means the ledger was written to the index cache, but not
                 // the entry log
             } catch (IOException ioe) {
-                if (ioe.getCause() instanceof EntryLogger.EntryLookupException) {
+                if (ioe.getCause() instanceof DefaultEntryLogger.EntryLookupException) {
                     // this is fine, means the ledger was not fully written to
                     // the entry log
                 } else {
@@ -401,27 +400,27 @@ public class LedgerCacheTest {
         final int numDeleters = 10;
         final AtomicBoolean running = new AtomicBoolean(true);
         Thread newLedgerThread = new Thread() {
-                public void run() {
-                    try {
-                        for (long i = 0; i < numLedgers && rc.get() == 0; i++) {
-                            ledgerCache.setMasterKey(i, masterKey);
+            public void run() {
+                try {
+                    for (long i = 0; i < numLedgers && rc.get() == 0; i++) {
+                        ledgerCache.setMasterKey(i, masterKey);
 
-                            ledgerCache.putEntryOffset(i, 1, 0);
-                            deleteQ.put(i);
-                            putQ.put(i);
-                        }
-                        for (int i = 0; i < numPutters; ++i) {
-                            putQ.put(-1L);
-                        }
-                        for (int i = 0; i < numDeleters; ++i) {
-                            deleteQ.put(-1L);
-                        }
-                    } catch (Throwable e) {
-                        rc.set(-1);
-                        LOG.error("Exception in new ledger thread", e);
+                        ledgerCache.putEntryOffset(i, 1, 0);
+                        deleteQ.put(i);
+                        putQ.put(i);
                     }
+                    for (int i = 0; i < numPutters; ++i) {
+                        putQ.put(-1L);
+                    }
+                    for (int i = 0; i < numDeleters; ++i) {
+                        deleteQ.put(-1L);
+                    }
+                } catch (Throwable e) {
+                    rc.set(-1);
+                    LOG.error("Exception in new ledger thread", e);
                 }
-            };
+            }
+        };
         newLedgerThread.start();
 
         Thread[] flushThreads = new Thread[numPutters];
@@ -522,23 +521,23 @@ public class LedgerCacheTest {
         final int numDeleters = 10;
         final AtomicBoolean running = new AtomicBoolean(true);
         Thread newLedgerThread = new Thread() {
-                public void run() {
-                    try {
-                        for (long i = 0; i < numLedgers && rc.get() == 0; i++) {
-                            ledgerCache.setMasterKey(i, masterKey);
+            public void run() {
+                try {
+                    for (long i = 0; i < numLedgers && rc.get() == 0; i++) {
+                        ledgerCache.setMasterKey(i, masterKey);
 
-                            ledgerCache.putEntryOffset(i, 1, 0);
-                            ledgerQ.put(i);
-                        }
-                        for (int i = 0; i < numDeleters; ++i) {
-                            ledgerQ.put(-1L);
-                        }
-                    } catch (Throwable e) {
-                        rc.set(-1);
-                        LOG.error("Exception in new ledger thread", e);
+                        ledgerCache.putEntryOffset(i, 1, 0);
+                        ledgerQ.put(i);
                     }
+                    for (int i = 0; i < numDeleters; ++i) {
+                        ledgerQ.put(-1L);
+                    }
+                } catch (Throwable e) {
+                    rc.set(-1);
+                    LOG.error("Exception in new ledger thread", e);
                 }
-            };
+            }
+        };
         newLedgerThread.start();
 
         Thread[] flushThreads = new Thread[numFlushers];
@@ -652,12 +651,12 @@ public class LedgerCacheTest {
                                StatsLogger statsLogger,
                                ByteBufAllocator allocator) throws IOException {
             super.initialize(
-                conf,
-                ledgerManager,
-                ledgerDirsManager,
-                indexDirsManager,
-                statsLogger,
-                allocator);
+                    conf,
+                    ledgerManager,
+                    ledgerDirsManager,
+                    indexDirsManager,
+                    statsLogger,
+                    allocator);
             this.conf = conf;
             this.statsLogger = statsLogger;
         }
@@ -714,8 +713,8 @@ public class LedgerCacheTest {
             } catch (IOException e) {
                 getStateManager().doTransitionToReadOnlyMode();
                 LOG.error("Exception thrown while flushing skip list cache.", e);
-         }
-         }
+            }
+        }
 
     }
 
@@ -733,7 +732,7 @@ public class LedgerCacheTest {
 
         Bookie bookie = new TestBookieImpl(conf);
         FlushTestSortedLedgerStorage flushTestSortedLedgerStorage =
-            (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
+                (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
         EntryMemTable memTable = flushTestSortedLedgerStorage.memTable;
 
         // this bookie.addEntry call is required. FileInfo for Ledger 1 would be created with this call.
@@ -774,9 +773,9 @@ public class LedgerCacheTest {
         int gcWaitTime = 1000;
         ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setGcWaitTime(gcWaitTime)
-            .setLedgerDirNames(new String[] { tmpDir.toString() })
-            .setJournalDirName(tmpDir.toString())
-            .setLedgerStorageClass(FlushTestSortedLedgerStorage.class.getName());
+                .setLedgerDirNames(new String[] { tmpDir.toString() })
+                .setJournalDirName(tmpDir.toString())
+                .setLedgerStorageClass(FlushTestSortedLedgerStorage.class.getName());
 
         Bookie bookie = new TestBookieImpl(conf);
         bookie.start();
@@ -799,13 +798,17 @@ public class LedgerCacheTest {
         // after flush failure, the bookie is set to readOnly
         assertTrue("Bookie is expected to be in Read mode", bookie.isReadOnly());
         // write fail
+        CountDownLatch latch = new CountDownLatch(1);
         bookie.addEntry(generateEntry(1, 3), false, new BookkeeperInternalCallbacks.WriteCallback(){
             public void writeComplete(int rc, long ledgerId, long entryId, BookieId addr, Object ctx){
-                LOG.info("fail write to bk");
-                assertTrue(rc != OK);
+                LOG.info("Write to bk succeed due to the bookie readOnly mode check is in the request parse step. "
+                        + "In the addEntry step, we won't check bookie's mode");
+                assertEquals(OK, rc);
+                latch.countDown();
             }
 
         }, null, "passwd".getBytes());
+        latch.await();
         bookie.shutdown();
 
     }
@@ -831,7 +834,7 @@ public class LedgerCacheTest {
 
         Bookie bookie = new TestBookieImpl(conf);
         FlushTestSortedLedgerStorage flushTestSortedLedgerStorage =
-            (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
+                (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
         EntryMemTable memTable = flushTestSortedLedgerStorage.memTable;
 
         /*
@@ -872,7 +875,7 @@ public class LedgerCacheTest {
 
         Bookie bookie = new TestBookieImpl(conf);
         FlushTestSortedLedgerStorage flushTestSortedLedgerStorage =
-            (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
+                (FlushTestSortedLedgerStorage) bookie.getLedgerStorage();
         EntryMemTable memTable = flushTestSortedLedgerStorage.memTable;
 
         /*

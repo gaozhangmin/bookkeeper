@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,12 +22,9 @@ package org.apache.bookkeeper.proto;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.BookieException.OperationRejectedException;
 import org.apache.bookkeeper.client.api.WriteFlag;
@@ -45,10 +42,10 @@ import org.slf4j.LoggerFactory;
 class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     private static final Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
-    public WriteEntryProcessorV3(Request request, Channel channel,
+    public WriteEntryProcessorV3(Request request, BookieRequestHandler requestHandler,
                                  BookieRequestProcessor requestProcessor) {
-        super(request, channel, requestProcessor);
-        requestProcessor.onAddRequestStart(channel);
+        super(request, requestHandler, requestProcessor);
+        requestProcessor.onAddRequestStart(requestHandler.ctx().channel());
     }
 
     // Returns null if there is no exception thrown
@@ -68,8 +65,8 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         }
 
         if (requestProcessor.getBookie().isReadOnly()
-            && !(RequestUtils.isHighPriority(request)
-                    && requestProcessor.getBookie().isAvailableForHighPriorityWrites())) {
+                && !(RequestUtils.isHighPriority(request)
+                && requestProcessor.getBookie().isAvailableForHighPriorityWrites())) {
             logger.warn("BookieServer is running as readonly mode, so rejecting the request from the client!");
             addResponse.setStatus(StatusCode.EREADONLY);
             return addResponse.build();
@@ -81,10 +78,10 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
                                       BookieId addr, Object ctx) {
                 if (BookieProtocol.EOK == rc) {
                     requestProcessor.getRequestStats().getAddEntryStats()
-                        .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                            .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
                 } else {
                     requestProcessor.getRequestStats().getAddEntryStats()
-                        .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                            .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
                 }
 
                 StatusCode status;
@@ -120,9 +117,11 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         ByteBuf entryToAdd = Unpooled.wrappedBuffer(addRequest.getBody().asReadOnlyByteBuffer());
         try {
             if (RequestUtils.hasFlag(addRequest, AddRequest.Flag.RECOVERY_ADD)) {
-                requestProcessor.getBookie().recoveryAddEntry(entryToAdd, wcb, channel, masterKey);
+                requestProcessor.getBookie().recoveryAddEntry(entryToAdd, wcb,
+                        requestHandler.ctx().channel(), masterKey);
             } else {
-                requestProcessor.getBookie().addEntry(entryToAdd, ackBeforeSync, wcb, channel, masterKey);
+                requestProcessor.getBookie().addEntry(entryToAdd, ackBeforeSync, wcb,
+                        requestHandler.ctx().channel(), masterKey);
             }
             status = StatusCode.EOK;
         } catch (OperationRejectedException e) {
@@ -162,7 +161,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         requestProcessor.getRequestStats().getWriteThreadQueuedLatency()
                 .registerSuccessfulEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
         AddResponse addResponse = getAddResponse();
@@ -174,7 +173,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
                     .setAddResponse(addResponse);
             Response resp = response.build();
             sendResponse(addResponse.getStatus(), resp,
-                         requestProcessor.getRequestStats().getAddRequestStats());
+                    requestProcessor.getRequestStats().getAddRequestStats());
         }
     }
 

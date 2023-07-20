@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,8 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
-import static org.apache.bookkeeper.bookie.EntryLogger.INVALID_LID;
-import static org.apache.bookkeeper.bookie.EntryLogger.UNASSIGNED_LEDGERID;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.INVALID_LID;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.UNASSIGNED_LEDGERID;
 
 import io.netty.buffer.ByteBuf;
 import java.io.File;
@@ -33,7 +33,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.bookkeeper.bookie.EntryLogger.BufferedLogChannel;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger.BufferedLogChannel;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
@@ -44,11 +44,11 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
     private volatile BufferedLogChannel activeLogChannel;
     private long logIdBeforeFlush = INVALID_LID;
     private final AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
-    private final EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
+    private final DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
 
     EntryLogManagerForSingleEntryLog(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
-            EntryLoggerAllocator entryLoggerAllocator, List<EntryLogger.EntryLogListener> listeners,
-            EntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus) {
+                                     EntryLoggerAllocator entryLoggerAllocator, List<DefaultEntryLogger.EntryLogListener> listeners,
+                                     DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus) {
         super(conf, ledgerDirsManager, entryLoggerAllocator, listeners);
         this.rotatedLogChannels = new LinkedList<BufferedLogChannel>();
         this.recentlyCreatedEntryLogsStatus = recentlyCreatedEntryLogsStatus;
@@ -89,10 +89,11 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
 
     @Override
     synchronized BufferedLogChannel getCurrentLogForLedgerForAddEntry(long ledgerId, int entrySize,
-            boolean rollLog) throws IOException {
+                                                                      boolean rollLog) throws IOException {
         if (null == activeLogChannel) {
             // log channel can be null because the file is deferred to be created
             createNewLog(UNASSIGNED_LEDGERID, "because current active log channel has not initialized yet");
+            return activeLogChannel;
         }
 
         boolean reachEntryLogLimit = rollLog ? reachEntryLogLimit(activeLogChannel, entrySize)
@@ -104,7 +105,7 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
                 activeLogChannel.flushAndForceWriteIfRegularFlush(false);
             }
             createNewLog(UNASSIGNED_LEDGERID,
-                ": createNewLog = " + createNewLog + ", reachEntryLogLimit = " + reachEntryLogLimit);
+                    ": createNewLog = " + createNewLog + ", reachEntryLogLimit = " + reachEntryLogLimit);
             // Reset the flag
             if (createNewLog) {
                 shouldCreateNewEntryLog.set(false);
@@ -157,7 +158,7 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
         if (currentActiveLogChannel != null) {
             return currentActiveLogChannel.getLogId();
         } else {
-            return EntryLogger.UNINITIALIZED_LOG_ID;
+            return DefaultEntryLogger.UNINITIALIZED_LOG_ID;
         }
     }
 
@@ -240,8 +241,8 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
         if (reachEntryLogLimit(activeLogChannel, 0L) || logIdAfterFlush != logIdBeforeFlush) {
             log.info("Rolling entry logger since it reached size limitation");
             createNewLog(UNASSIGNED_LEDGERID,
-                "due to reaching log limit after flushing memtable : logIdBeforeFlush = "
-                    + logIdBeforeFlush + ", logIdAfterFlush = " + logIdAfterFlush);
+                    "due to reaching log limit after flushing memtable : logIdBeforeFlush = "
+                            + logIdBeforeFlush + ", logIdAfterFlush = " + logIdAfterFlush);
             return true;
         }
         return false;
@@ -255,12 +256,12 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
             // roll current entry log and then issue checkpoint to underlying
             // interleaved ledger storage.
             createNewLog(UNASSIGNED_LEDGERID,
-                "due to preparing checkpoint : numBytesFlushed = " + numBytesFlushed);
+                    "due to preparing checkpoint : numBytesFlushed = " + numBytesFlushed);
         }
     }
 
     @Override
-    public EntryLogger.BufferedLogChannel createNewLogForCompaction() throws IOException {
+    public DefaultEntryLogger.BufferedLogChannel createNewLogForCompaction() throws IOException {
         return entryLoggerAllocator.createNewLogForCompaction(selectDirForNextEntryLog());
     }
 }

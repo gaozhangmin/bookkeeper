@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,23 +32,23 @@ import org.slf4j.LoggerFactory;
 /**
  * A base class for bookeeper packet processors.
  */
-abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
+abstract class PacketProcessorBase<T extends Request> implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(PacketProcessorBase.class);
     T request;
-    Channel channel;
+    BookieRequestHandler requestHandler;
     BookieRequestProcessor requestProcessor;
     long enqueueNanos;
 
-    protected void init(T request, Channel channel, BookieRequestProcessor requestProcessor) {
+    protected void init(T request, BookieRequestHandler requestHandler, BookieRequestProcessor requestProcessor) {
         this.request = request;
-        this.channel = channel;
+        this.requestHandler = requestHandler;
         this.requestProcessor = requestProcessor;
         this.enqueueNanos = MathUtils.nowInNano();
     }
 
     protected void reset() {
         request = null;
-        channel = null;
+        requestHandler = null;
         requestProcessor = null;
         enqueueNanos = -1;
     }
@@ -83,8 +82,10 @@ abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
 
     protected void sendResponse(int rc, Object response, OpStatsLogger statsLogger) {
         final long writeNanos = MathUtils.nowInNano();
-
         final long timeOut = requestProcessor.getWaitTimeoutOnBackpressureMillis();
+
+        Channel channel = requestHandler.ctx().channel();
+
         if (timeOut >= 0 && !channel.isWritable()) {
             if (!requestProcessor.isBlacklisted(channel)) {
                 synchronized (channel) {
@@ -107,9 +108,9 @@ abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
 
             if (!channel.isWritable()) {
                 logger.warn("cannot write response to non-writable channel {} for request {}", channel,
-                    StringUtils.requestToString(request));
+                        StringUtils.requestToString(request));
                 requestProcessor.getRequestStats().getChannelWriteStats()
-                    .registerFailedEvent(MathUtils.elapsedNanos(writeNanos), TimeUnit.NANOSECONDS);
+                        .registerFailedEvent(MathUtils.elapsedNanos(writeNanos), TimeUnit.NANOSECONDS);
                 statsLogger.registerFailedEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
                 if (response instanceof BookieProtocol.Response) {
                     ((BookieProtocol.Response) response).release();
@@ -121,18 +122,25 @@ abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
         }
 
         if (channel.isActive()) {
-            ChannelPromise promise = channel.newPromise().addListener(future -> {
-                if (!future.isSuccess()) {
-                    logger.debug("Netty channel write exception. ", future.cause());
-                }
-            });
+            final ChannelPromise promise;
+            if (logger.isDebugEnabled()) {
+                promise = channel.newPromise().addListener(future -> {
+                    if (!future.isSuccess()) {
+                        logger.debug("Netty channel write exception. ", future.cause());
+                    }
+                });
+            } else {
+                promise = channel.voidPromise();
+            }
             channel.writeAndFlush(response, promise);
         } else {
             if (response instanceof BookieProtocol.Response) {
                 ((BookieProtocol.Response) response).release();
             }
-            logger.debug("Netty channel {} is inactive, "
-                    + "hence bypassing netty channel writeAndFlush during sendResponse", channel);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Netty channel {} is inactive, "
+                        + "hence bypassing netty channel writeAndFlush during sendResponse", channel);
+            }
         }
         if (BookieProtocol.EOK == rc) {
             statsLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
@@ -150,6 +158,7 @@ abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
      */
     protected void sendResponseAndWait(int rc, Object response, OpStatsLogger statsLogger) {
         try {
+            Channel channel = requestHandler.ctx().channel();
             ChannelFuture future = channel.writeAndFlush(response);
             if (!channel.eventLoop().inEventLoop()) {
                 future.get();
@@ -166,13 +175,20 @@ abstract class PacketProcessorBase<T extends Request> extends SafeRunnable {
     }
 
     @Override
-    public void safeRun() {
-        requestProcessor.getRequestStats().getWriteThreadQueuedLatency()
-                .registerSuccessfulEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
+    public void run() {
+        if (request instanceof BookieProtocol.ReadRequest) {
+            requestProcessor.getRequestStats().getReadEntrySchedulingDelayStats()
+                    .registerSuccessfulEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
+        }
+        if (request instanceof BookieProtocol.ParsedAddRequest) {
+            requestProcessor.getRequestStats().getWriteThreadQueuedLatency()
+                    .registerSuccessfulEvent(MathUtils.elapsedNanos(enqueueNanos), TimeUnit.NANOSECONDS);
+        }
+
         if (!isVersionCompatible()) {
             sendResponse(BookieProtocol.EBADVERSION,
-                         ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request),
-                         requestProcessor.getRequestStats().getReadRequestStats());
+                    ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request),
+                    requestProcessor.getRequestStats().getReadRequestStats());
             if (request instanceof BookieProtocol.ReadRequest) {
                 requestProcessor.onReadRequestFinish();
             }

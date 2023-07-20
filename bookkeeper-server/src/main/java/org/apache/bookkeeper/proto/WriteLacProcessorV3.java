@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,12 +21,9 @@
 package org.apache.bookkeeper.proto;
 
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
@@ -42,9 +39,9 @@ import org.slf4j.LoggerFactory;
 class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(WriteLacProcessorV3.class);
 
-    public WriteLacProcessorV3(Request request, Channel channel,
-                             BookieRequestProcessor requestProcessor) {
-        super(request, channel, requestProcessor);
+    public WriteLacProcessorV3(Request request, BookieRequestHandler requestHandler,
+                               BookieRequestProcessor requestProcessor) {
+        super(request, requestHandler, requestProcessor);
     }
 
     // Returns null if there is no exception thrown
@@ -72,23 +69,23 @@ class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
             public void writeComplete(int rc, long ledgerId, long entryId, BookieId addr, Object ctx) {
                 if (BookieProtocol.EOK == rc) {
                     requestProcessor.getRequestStats().getWriteLacStats()
-                        .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                            .registerSuccessfulEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
                 } else {
                     requestProcessor.getRequestStats().getWriteLacStats()
-                        .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                            .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
                 }
 
                 StatusCode status;
                 switch (rc) {
-                case BookieProtocol.EOK:
-                    status = StatusCode.EOK;
-                    break;
-                case BookieProtocol.EIO:
-                    status = StatusCode.EIO;
-                    break;
-                default:
-                    status = StatusCode.EUA;
-                    break;
+                    case BookieProtocol.EOK:
+                        status = StatusCode.EOK;
+                        break;
+                    case BookieProtocol.EIO:
+                        status = StatusCode.EIO;
+                        break;
+                    default:
+                        status = StatusCode.EUA;
+                        break;
                 }
                 writeLacResponse.setStatus(status);
                 Response.Builder response = Response.newBuilder()
@@ -105,7 +102,8 @@ class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
         byte[] masterKey = writeLacRequest.getMasterKey().toByteArray();
 
         try {
-            requestProcessor.bookie.setExplicitLac(Unpooled.wrappedBuffer(lacToAdd), writeCallback, channel, masterKey);
+            requestProcessor.bookie.setExplicitLac(Unpooled.wrappedBuffer(lacToAdd),
+                    writeCallback, requestHandler, masterKey);
             status = StatusCode.EOK;
         } catch (IOException e) {
             logger.error("Error saving lac {} for ledger:{}",
@@ -131,7 +129,7 @@ class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
         // dosn't return a response back to the caller.
         if (!status.equals(StatusCode.EOK)) {
             requestProcessor.getRequestStats().getWriteLacStats()
-                .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
+                    .registerFailedEvent(MathUtils.elapsedNanos(startTimeNanos), TimeUnit.NANOSECONDS);
             writeLacResponse.setStatus(status);
             return writeLacResponse.build();
         }
@@ -139,7 +137,7 @@ class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     }
 
     @Override
-    public void safeRun() {
+    public void run() {
         WriteLacResponse writeLacResponse = getWriteLacResponse();
         if (null != writeLacResponse) {
             Response.Builder response = Response.newBuilder()
@@ -148,9 +146,9 @@ class WriteLacProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
                     .setWriteLacResponse(writeLacResponse);
             Response resp = response.build();
             sendResponse(
-                writeLacResponse.getStatus(),
-                resp,
-                requestProcessor.getRequestStats().getWriteLacRequestStats());
+                    writeLacResponse.getStatus(),
+                    resp,
+                    requestProcessor.getRequestStats().getWriteLacRequestStats());
         }
     }
 

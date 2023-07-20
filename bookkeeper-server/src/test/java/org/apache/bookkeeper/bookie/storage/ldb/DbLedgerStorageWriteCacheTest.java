@@ -1,4 +1,4 @@
-/**
+/*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -22,17 +22,18 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException.OperationRejectedException;
 import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.TestBookieImpl;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
@@ -53,47 +54,50 @@ public class DbLedgerStorageWriteCacheTest {
 
         @Override
         protected SingleDirectoryDbLedgerStorage newSingleDirectoryDbLedgerStorage(ServerConfiguration conf,
-                LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
-                StatsLogger statsLogger, ScheduledExecutorService gcExecutor,
-                long writeCacheSize, long readCacheSize, int readAheadCacheBatchSize)
+                                                                                   LedgerManager ledgerManager, LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager,
+                                                                                   EntryLogger entryLogger, StatsLogger statsLogger,
+                                                                                   long writeCacheSize, long readCacheSize, int readAheadCacheBatchSize, long readAheadCacheBatchBytesSize)
                 throws IOException {
             return new MockedSingleDirectoryDbLedgerStorage(conf, ledgerManager, ledgerDirsManager, indexDirsManager,
-                                                            statsLogger, allocator, gcExecutor, writeCacheSize,
-                                                            readCacheSize, readAheadCacheBatchSize);
+                    entryLogger, statsLogger, allocator, writeCacheSize,
+                    readCacheSize, readAheadCacheBatchSize, readAheadCacheBatchBytesSize);
         }
 
         private static class MockedSingleDirectoryDbLedgerStorage extends SingleDirectoryDbLedgerStorage {
             public MockedSingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
-                    LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, StatsLogger statsLogger,
-                    ByteBufAllocator allocator, ScheduledExecutorService gcExecutor, long writeCacheSize,
-                    long readCacheSize, int readAheadCacheBatchSize) throws IOException {
-                super(conf, ledgerManager, ledgerDirsManager, indexDirsManager,
-                      statsLogger, allocator, gcExecutor, writeCacheSize, readCacheSize, readAheadCacheBatchSize);
+                                                        LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, EntryLogger entryLogger,
+                                                        StatsLogger statsLogger,
+                                                        ByteBufAllocator allocator, long writeCacheSize,
+                                                        long readCacheSize, int readAheadCacheBatchSize, long readAheadCacheBatchBytesSize)
+                    throws IOException {
+                super(conf, ledgerManager, ledgerDirsManager, indexDirsManager, entryLogger,
+                        statsLogger, allocator, writeCacheSize, readCacheSize, readAheadCacheBatchSize,
+                        readAheadCacheBatchBytesSize);
             }
 
-          @Override
-          public void flush() throws IOException {
-              flushMutex.lock();
-              try {
-                  // Swap the write caches and block indefinitely to simulate a slow disk
-                  WriteCache tmp = writeCacheBeingFlushed;
-                  writeCacheBeingFlushed = writeCache;
-                  writeCache = tmp;
+            @Override
+            public void flush() throws IOException {
+                flushMutex.lock();
+                try {
+                    // Swap the write caches and block indefinitely to simulate a slow disk
+                    WriteCache tmp = writeCacheBeingFlushed;
+                    writeCacheBeingFlushed = writeCache;
+                    writeCache = tmp;
 
-                  // since the cache is switched, we can allow flush to be triggered
-                  hasFlushBeenTriggered.set(false);
+                    // since the cache is switched, we can allow flush to be triggered
+                    hasFlushBeenTriggered.set(false);
 
-                  // Block the flushing thread
-                  try {
-                      Thread.sleep(1000);
-                  } catch (InterruptedException e) {
-                      Thread.currentThread().interrupt();
-                      return;
-                  }
-              } finally {
-                  flushMutex.unlock();
-              }
-          }
+                    // Block the flushing thread
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                } finally {
+                    flushMutex.unlock();
+                }
+            }
         }
     }
 

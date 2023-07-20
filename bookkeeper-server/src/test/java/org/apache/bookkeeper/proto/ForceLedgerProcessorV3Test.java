@@ -30,6 +30,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import java.util.concurrent.CountDownLatch;
@@ -55,6 +56,8 @@ public class ForceLedgerProcessorV3Test {
 
     private Request request;
     private ForceLedgerProcessorV3 processor;
+
+    private BookieRequestHandler requestHandler;
     private Channel channel;
     private BookieRequestProcessor requestProcessor;
     private Bookie bookie;
@@ -62,27 +65,35 @@ public class ForceLedgerProcessorV3Test {
     @Before
     public void setup() {
         request = Request.newBuilder()
-            .setHeader(BKPacketHeader.newBuilder()
-                .setTxnId(System.currentTimeMillis())
-                .setVersion(ProtocolVersion.VERSION_THREE)
-                .setOperation(OperationType.ADD_ENTRY)
-                .build())
-            .setForceLedgerRequest(ForceLedgerRequest.newBuilder()
-                .setLedgerId(System.currentTimeMillis())
-                .build())
-            .build();
+                .setHeader(BKPacketHeader.newBuilder()
+                        .setTxnId(System.currentTimeMillis())
+                        .setVersion(ProtocolVersion.VERSION_THREE)
+                        .setOperation(OperationType.ADD_ENTRY)
+                        .build())
+                .setForceLedgerRequest(ForceLedgerRequest.newBuilder()
+                        .setLedgerId(System.currentTimeMillis())
+                        .build())
+                .build();
+
+
         channel = mock(Channel.class);
         when(channel.isOpen()).thenReturn(true);
+        when(channel.isActive()).thenReturn(true);
+
+        requestHandler = mock(BookieRequestHandler.class);
+        ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+        when(ctx.channel()).thenReturn(channel);
+        when(requestHandler.ctx()).thenReturn(ctx);
+
         bookie = mock(Bookie.class);
         requestProcessor = mock(BookieRequestProcessor.class);
         when(requestProcessor.getBookie()).thenReturn(bookie);
         when(requestProcessor.getWaitTimeoutOnBackpressureMillis()).thenReturn(-1L);
         when(requestProcessor.getRequestStats()).thenReturn(new RequestStats(NullStatsLogger.INSTANCE));
-        when(channel.isActive()).thenReturn(true);
         processor = new ForceLedgerProcessorV3(
-            request,
-            channel,
-            requestProcessor);
+                request,
+                requestHandler,
+                requestProcessor);
     }
 
     @Test
@@ -93,16 +104,16 @@ public class ForceLedgerProcessorV3Test {
             WriteCallback wc = invocationOnMock.getArgument(1);
 
             wc.writeComplete(
-                0,
-                request.getForceLedgerRequest().getLedgerId(),
-                BookieImpl.METAENTRY_ID_FORCE_LEDGER,
-                null,
-                null);
+                    0,
+                    request.getForceLedgerRequest().getLedgerId(),
+                    BookieImpl.METAENTRY_ID_FORCE_LEDGER,
+                    null,
+                    null);
             return null;
         }).when(bookie).forceLedger(
-            eq(request.getForceLedgerRequest().getLedgerId()),
-            any(WriteCallback.class),
-            same(channel));
+                eq(request.getForceLedgerRequest().getLedgerId()),
+                any(WriteCallback.class),
+                same(requestHandler));
 
         ChannelPromise promise = new DefaultChannelPromise(channel);
         AtomicReference<Object> writtenObject = new AtomicReference<>();
@@ -116,8 +127,8 @@ public class ForceLedgerProcessorV3Test {
         processor.run();
 
         verify(bookie, times(1))
-            .forceLedger(eq(request.getForceLedgerRequest().getLedgerId()),
-                    any(WriteCallback.class), same(channel));
+                .forceLedger(eq(request.getForceLedgerRequest().getLedgerId()),
+                        any(WriteCallback.class), same(requestHandler));
         verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         latch.await();
