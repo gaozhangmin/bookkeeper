@@ -24,6 +24,8 @@ package org.apache.bookkeeper.bookie;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ReferenceCountUtil;
+
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 
@@ -43,6 +45,7 @@ public class BufferedReadChannel extends BufferedChannelBase  {
 
     long invocationCount = 0;
     long cacheHitCount = 0;
+    private boolean closed = false;
 
     public BufferedReadChannel(FileChannel fileChannel, int readCapacity) {
         super(fileChannel);
@@ -97,6 +100,17 @@ public class BufferedReadChannel extends BufferedChannelBase  {
             }
         }
         return (int) (currentPosition - pos);
+    }
+
+    public synchronized void close() throws IOException {
+        if (closed) {
+            return;
+        }
+
+        readBufferStartPosition = Long.MIN_VALUE;
+        ReferenceCountUtil.release(readBuffer);
+        // BufferedReadChannel is not response for fileChannel close.
+        closed = true;
     }
 
     public synchronized void clear() {
