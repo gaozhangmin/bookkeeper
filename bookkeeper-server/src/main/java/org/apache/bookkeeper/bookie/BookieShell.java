@@ -73,6 +73,7 @@ import org.apache.bookkeeper.tools.cli.commands.bookie.RebuildDBLedgersIndexComm
 import org.apache.bookkeeper.tools.cli.commands.bookie.RegenerateInterleavedStorageIndexFileCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.SanityTestCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.UpdateBookieInLedgerCommand;
+import org.apache.bookkeeper.tools.cli.commands.bookies.ClusterInfoCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.DecommissionCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.EndpointInfoCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.InfoCommand;
@@ -148,6 +149,7 @@ public class BookieShell implements Tool {
     static final String CMD_UPDATE_BOOKIE_IN_LEDGER = "updateBookieInLedger";
     static final String CMD_DELETELEDGER = "deleteledger";
     static final String CMD_BOOKIEINFO = "bookieinfo";
+    static final String CMD_CLUSTERINFO = "clusterinfo";
     static final String CMD_ACTIVE_LEDGERS_ON_ENTRY_LOG_FILE = "activeledgers";
     static final String CMD_DECOMMISSIONBOOKIE = "decommissionbookie";
     static final String CMD_ENDPOINTINFO = "endpointinfo";
@@ -303,7 +305,7 @@ public class BookieShell implements Tool {
 
             MetaFormatCommand cmd = new MetaFormatCommand();
             MetaFormatCommand.MetaFormatFlags flags = new MetaFormatCommand.MetaFormatFlags()
-                    .interactive(interactive).force(force);
+                .interactive(interactive).force(force);
             boolean result = cmd.apply(bkConf, flags);
             return result ? 0 : 1;
         }
@@ -344,7 +346,7 @@ public class BookieShell implements Tool {
         @Override
         int runCmd(CommandLine cmdLine) throws Exception {
             org.apache.bookkeeper.tools.cli.commands.bookies.InitCommand initCommand =
-                    new org.apache.bookkeeper.tools.cli.commands.bookies.InitCommand();
+                new org.apache.bookkeeper.tools.cli.commands.bookies.InitCommand();
             boolean result = initCommand.apply(bkConf, new CliFlags());
             return (result) ? 0 : 1;
         }
@@ -361,7 +363,7 @@ public class BookieShell implements Tool {
             opts.addOption("i", "instanceid", true, "instanceid");
             opts.addOption("f", "force", false,
                     "If instanceid is not specified, "
-                            + "then whether to force nuke the metadata without validating instanceid");
+                    + "then whether to force nuke the metadata without validating instanceid");
         }
 
         @Override
@@ -387,8 +389,8 @@ public class BookieShell implements Tool {
 
             NukeExistingClusterCommand cmd = new NukeExistingClusterCommand();
             NukeExistingClusterFlags flags = new NukeExistingClusterFlags().force(force)
-                    .zkLedgersRootPath(zkledgersrootpath)
-                    .instandId(instanceid);
+                                                                           .zkLedgersRootPath(zkledgersrootpath)
+                                                                           .instandId(instanceid);
             boolean result = cmd.apply(bkConf, flags);
             return (result) ? 0 : 1;
         }
@@ -431,9 +433,9 @@ public class BookieShell implements Tool {
             boolean deletecookie = cmdLine.hasOption("d");
 
             FormatCommand.Flags flags = new FormatCommand.Flags()
-                    .nonInteractive(interactive)
-                    .force(force)
-                    .deleteCookie(deletecookie);
+                .nonInteractive(interactive)
+                .force(force)
+                .deleteCookie(deletecookie);
             FormatCommand command = new FormatCommand(flags);
             boolean result = command.apply(bkConf, flags);
             return (result) ? 0 : 1;
@@ -2239,6 +2241,38 @@ public class BookieShell implements Tool {
         }
     }
 
+    /*
+     * Command to exposes the current info about the cluster of bookies.
+     */
+    class ClusterInfoCmd extends MyCommand {
+        ClusterInfoCmd() {
+            super(CMD_CLUSTERINFO);
+        }
+
+        @Override
+        String getDescription() {
+            return "Exposes the current info about the cluster of bookies.";
+        }
+
+        @Override
+        String getUsage() {
+            return "clusterinfo";
+        }
+
+        @Override
+        Options getOptions() {
+            return opts;
+        }
+
+        @Override
+        int runCmd(CommandLine cmdLine) throws Exception {
+            ClusterInfoCommand cmd = new ClusterInfoCommand();
+            cmd.apply(bkConf, new CliFlags());
+            return 0;
+        }
+    }
+
+
     final Map<String, Command> commands = new HashMap<>();
 
     {
@@ -2272,6 +2306,7 @@ public class BookieShell implements Tool {
         commands.put(CMD_UPDATE_BOOKIE_IN_LEDGER, new UpdateBookieInLedgerCmd());
         commands.put(CMD_DELETELEDGER, new DeleteLedgerCmd());
         commands.put(CMD_BOOKIEINFO, new BookieInfoCmd());
+        commands.put(CMD_CLUSTERINFO, new ClusterInfoCmd());
         commands.put(CMD_DECOMMISSIONBOOKIE, new DecommissionBookieCmd());
         commands.put(CMD_ENDPOINTINFO, new EndpointInfoCmd());
         commands.put(CMD_CONVERT_TO_DB_STORAGE, new ConvertToDbStorageCmd());

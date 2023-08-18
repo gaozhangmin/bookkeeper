@@ -1504,6 +1504,14 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
         return this.getStringArray(COLD_LEDGER_DIRS);
     }
 
+    public ServerConfiguration setColdLedgerDirNames(String[] coldLedgerDirs) {
+        if (null == coldLedgerDirs) {
+            return this;
+        }
+        this.setProperty(COLD_LEDGER_DIRS, coldLedgerDirs);
+        return this;
+    }
+
     /**
      * Set dir name to store cold files.
      *

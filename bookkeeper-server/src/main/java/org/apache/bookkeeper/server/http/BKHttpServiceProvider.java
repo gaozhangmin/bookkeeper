@@ -45,9 +45,11 @@ import org.apache.bookkeeper.server.http.service.BookieInfoService;
 import org.apache.bookkeeper.server.http.service.BookieIsReadyService;
 import org.apache.bookkeeper.server.http.service.BookieStateReadOnlyService;
 import org.apache.bookkeeper.server.http.service.BookieStateService;
+import org.apache.bookkeeper.server.http.service.ClusterInfoService;
 import org.apache.bookkeeper.server.http.service.ConfigurationService;
 import org.apache.bookkeeper.server.http.service.DecommissionService;
 import org.apache.bookkeeper.server.http.service.DeleteLedgerService;
+import org.apache.bookkeeper.server.http.service.DiskCacheStatusService;
 import org.apache.bookkeeper.server.http.service.ExpandStorageService;
 import org.apache.bookkeeper.server.http.service.GCDetailsService;
 import org.apache.bookkeeper.server.http.service.GetLastLogMarkService;
@@ -65,6 +67,7 @@ import org.apache.bookkeeper.server.http.service.ResumeCompactionService;
 import org.apache.bookkeeper.server.http.service.SuspendCompactionService;
 import org.apache.bookkeeper.server.http.service.TriggerAuditService;
 import org.apache.bookkeeper.server.http.service.TriggerGCService;
+import org.apache.bookkeeper.server.http.service.TriggerLocationCompactService;
 import org.apache.bookkeeper.server.http.service.WhoIsAuditorService;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.zookeeper.KeeperException;
@@ -228,10 +231,14 @@ public class BKHttpServiceProvider implements HttpServiceProvider {
                 return new BookieIsReadyService(bookieServer.getBookie());
             case BOOKIE_INFO:
                 return new BookieInfoService(bookieServer.getBookie());
+            case CLUSTER_INFO:
+                return new ClusterInfoService(bka, ledgerManagerFactory);
             case SUSPEND_GC_COMPACTION:
                 return new SuspendCompactionService(bookieServer);
             case RESUME_GC_COMPACTION:
                 return new ResumeCompactionService(bookieServer);
+            case TRIGGER_ENTRY_LOCATION_COMPACT:
+                return new TriggerLocationCompactService(bookieServer);
 
             // autorecovery
             case AUTORECOVERY_STATUS:
@@ -248,6 +255,8 @@ public class BKHttpServiceProvider implements HttpServiceProvider {
                 return new LostBookieRecoveryDelayService(configuration, bka);
             case DECOMMISSION:
                 return new DecommissionService(configuration, bka, executor);
+            case DISK_CACHE_DOWNGRADE_STATUS:
+                return new DiskCacheStatusService(configuration, bookieServer);
 
             default:
                 return new ConfigurationService(configuration);

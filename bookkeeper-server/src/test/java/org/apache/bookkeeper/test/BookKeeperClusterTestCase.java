@@ -285,6 +285,12 @@ public abstract class BookKeeperClusterTestCase {
 
     protected ServerConfiguration newServerConfiguration() throws Exception {
         File f = tmpDirs.createNew("bookie", "test");
+        File f1 = tmpDirs.createNew("bookie", "cold");
+        File f2 = tmpDirs.createNew("bookie", "cold");
+
+        File[] coldLedgerDirs = new File[2];
+        coldLedgerDirs[0] = f1;
+        coldLedgerDirs[1] = f2;
 
         int port;
         if (baseConf.isEnableLocalTransport() || !baseConf.getAllowEphemeralPorts()) {
@@ -292,7 +298,7 @@ public abstract class BookKeeperClusterTestCase {
         } else {
             port = 0;
         }
-        return newServerConfiguration(port, f, new File[] { f });
+        return newServerConfiguration(port, f, new File[] { f }, coldLedgerDirs);
     }
 
     protected ClientConfiguration newClientConfiguration() {
@@ -308,6 +314,25 @@ public abstract class BookKeeperClusterTestCase {
             ledgerDirNames[i] = ledgerDirs[i].getPath();
         }
         conf.setLedgerDirNames(ledgerDirNames);
+        conf.setEnableTaskExecutionStats(true);
+        conf.setAllocatorPoolingPolicy(PoolingPolicy.UnpooledHeap);
+        return conf;
+    }
+
+    protected ServerConfiguration newServerConfiguration(int port, File journalDir, File[] ledgerDirs, File[] coldLedgerDirs) {
+        ServerConfiguration conf = new ServerConfiguration(baseConf);
+        conf.setBookiePort(port);
+        conf.setJournalDirName(journalDir.getPath());
+        String[] ledgerDirNames = new String[ledgerDirs.length];
+        for (int i = 0; i < ledgerDirs.length; i++) {
+            ledgerDirNames[i] = ledgerDirs[i].getPath();
+        }
+        conf.setLedgerDirNames(ledgerDirNames);
+        String[] coldLedgerDirNames = new String[coldLedgerDirs.length];
+        for (int i = 0; i < coldLedgerDirs.length; i++) {
+            coldLedgerDirNames[i] = coldLedgerDirs[i].getPath();
+        }
+        conf.setColdLedgerDirName(coldLedgerDirNames);
         conf.setEnableTaskExecutionStats(true);
         conf.setAllocatorPoolingPolicy(PoolingPolicy.UnpooledHeap);
         return conf;

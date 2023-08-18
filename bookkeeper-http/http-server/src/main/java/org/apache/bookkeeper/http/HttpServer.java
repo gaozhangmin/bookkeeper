@@ -86,8 +86,10 @@ public interface HttpServer {
         BOOKIE_STATE_READONLY,
         BOOKIE_IS_READY,
         BOOKIE_INFO,
+        CLUSTER_INFO,
         RESUME_GC_COMPACTION,
         SUSPEND_GC_COMPACTION,
+        TRIGGER_ENTRY_LOCATION_COMPACT,
         // autorecovery
         AUTORECOVERY_STATUS,
         RECOVERY_BOOKIE,
@@ -95,7 +97,9 @@ public interface HttpServer {
         WHO_IS_AUDITOR,
         TRIGGER_AUDIT,
         LOST_BOOKIE_RECOVERY_DELAY,
-        DECOMMISSION
+        DECOMMISSION,
+
+        DISK_CACHE_DOWNGRADE_STATUS,
     }
 
     /**

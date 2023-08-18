@@ -53,6 +53,8 @@ public abstract class HttpRouter<Handler> {
     public static final String BOOKIE_STATE_READONLY        = "/api/v1/bookie/state/readonly";
     public static final String BOOKIE_IS_READY              = "/api/v1/bookie/is_ready";
     public static final String BOOKIE_INFO                  = "/api/v1/bookie/info";
+    public static final String CLUSTER_INFO                  = "/api/v1/bookie/cluster_info";
+    public static final String ENTRY_LOCATION_COMPACT       = "/api/v1/bookie/entry_location_compact";
     // autorecovery
     public static final String AUTORECOVERY_STATUS          = "/api/v1/autorecovery/status";
     public static final String RECOVERY_BOOKIE              = "/api/v1/autorecovery/bookie";
@@ -61,6 +63,7 @@ public abstract class HttpRouter<Handler> {
     public static final String TRIGGER_AUDIT                = "/api/v1/autorecovery/trigger_audit";
     public static final String LOST_BOOKIE_RECOVERY_DELAY   = "/api/v1/autorecovery/lost_bookie_recovery_delay";
     public static final String DECOMMISSION                 = "/api/v1/autorecovery/decommission";
+    public static final String DISK_CACHE_DOWNGRADING_STATUS                 = "/api/v1/bookie/diskcache/status";
 
 
     private final Map<String, Handler> endpointHandlers = new HashMap<>();
@@ -103,6 +106,10 @@ public abstract class HttpRouter<Handler> {
         this.endpointHandlers.put(LOST_BOOKIE_RECOVERY_DELAY,
             handlerFactory.newHandler(HttpServer.ApiType.LOST_BOOKIE_RECOVERY_DELAY));
         this.endpointHandlers.put(DECOMMISSION, handlerFactory.newHandler(HttpServer.ApiType.DECOMMISSION));
+        this.endpointHandlers.put(DISK_CACHE_DOWNGRADING_STATUS,
+                handlerFactory.newHandler(HttpServer.ApiType.DISK_CACHE_DOWNGRADE_STATUS));
+        this.endpointHandlers.put(ENTRY_LOCATION_COMPACT,
+                handlerFactory.newHandler(HttpServer.ApiType.TRIGGER_ENTRY_LOCATION_COMPACT));
     }
 
     /**
