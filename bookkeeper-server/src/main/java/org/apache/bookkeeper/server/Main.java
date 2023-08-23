@@ -68,7 +68,7 @@ public class Main {
         Option ledgerDirs = new Option ("l", "ledgerdirs", true, "bookie ledgers directories");
         ledgerDirs.setArgs(10);
         BK_OPTS.addOption(ledgerDirs);
-        Option coldLedgerDirs = new Option ("l", "coldLedgerDirs", true, "bookie coldLedger directories");
+        Option coldLedgerDirs = new Option ("cl", "coldLedgerDirs", true, "bookie coldLedger directories");
         coldLedgerDirs.setArgs(10);
         BK_OPTS.addOption(coldLedgerDirs);
         BK_OPTS.addOption("h", "help", false, "Print help message");
@@ -191,11 +191,11 @@ public class Main {
                 conf.setLedgerDirNames(sLedgerDirs);
             }
 
-            if (cmdLine.hasOption("coldLedgers")) {
-                String[] sColdLedgerDirs = cmdLine.getOptionValues("coldLedgers");
+            if (cmdLine.hasOption("cl")) {
+                String[] sColdLedgerDirs = cmdLine.getOptionValues("cl");
                 log.info("Get cmdline coldLedger dirs: ");
                 for (String coldLedger : sColdLedgerDirs) {
-                    log.info("coldLedger : {}", coldLedger);
+                    log.info("coldLedgerDir : {}", coldLedger);
                 }
                 conf.setLedgerDirNames(sColdLedgerDirs);
             }

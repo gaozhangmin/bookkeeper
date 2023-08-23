@@ -996,8 +996,10 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         long readEntryStartNano = MathUtils.nowInNano();
         long entryLogId = logIdForOffset(entryLocation);
         if (!cachedEntryLogIdsCache.contains(entryLogId)) {
-            LOG.info("Reading entry from coldStorage={}. entryLogId={}-{}-{}", coldLedgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Reading entry from coldStorage={}. entryLogId={}-{}-{}", coldLedgerBaseDir,
+                        entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
+            }
             try {
                 entry = coldEntryLogger.readEntry(ledgerId, entryId, entryLocation);
             } finally {
@@ -1011,8 +1013,10 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
             fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation);
         } else {
-            LOG.info("Reading entry from diskCache={}. entryLogId={}-{}-{}", ledgerBaseDir,
-                    entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Reading entry from diskCache={}. entryLogId={}-{}-{}", ledgerBaseDir,
+                        entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
+            }
             try {
                 entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
             } finally {
@@ -1021,10 +1025,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
             }
             readCache.put(ledgerId, entryId, entry);
-//
-//            // Try to read more entries
-//            long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
-//            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation);
         }
 
         return entry;

@@ -73,7 +73,6 @@ public class ColdStorageArchiveThread implements Runnable {
 
     private final File ledgerDir;
 
-    private final int archiveReadBufferSize;
     private Throttler throttler = null;
     EntryLogger coldEntryLogger;
 
@@ -126,7 +125,6 @@ public class ColdStorageArchiveThread implements Runnable {
         this.entryLogger = entryLogger;
         this.entryLogMetaMap = createEntryLogMetadataMap();
         this.ledgerStorage = ledgerStorage;
-
         this.numActiveEntryLogs = 0;
         this.totalEntryLogSize = 0L;
         this.garbageCollector = new ScanAndCompareGarbageCollector(ledgerManager, ledgerStorage, conf, statsLogger);
@@ -140,13 +138,11 @@ public class ColdStorageArchiveThread implements Runnable {
         this.archiveIntervalMs = conf.getColdStorageArchiveInterval();
         this.coldLedgerDir = coldLedgerDirsManager.getAllLedgerDirs().get(0);
         this.ledgerDir = ledgerDirsManager.getAllLedgerDirs().get(0);
-        this.archiveReadBufferSize = conf.getArchiveReadBufferSize();
         this.coldEntryLogger = coldEntryLogger;
         int archiveRateByBytes = conf.getArchiveRateBytes();
         if (archiveRateByBytes > 0) {
             this.throttler = new Throttler(archiveRateByBytes);
         }
-//        this.ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
     }
 
     private EntryLogMetadataMap createEntryLogMetadataMap() throws IOException {
@@ -253,9 +249,6 @@ public class ColdStorageArchiveThread implements Runnable {
      * @throws EntryLogMetadataMapException
      */
     protected void removeEntryLogByArchive(long entryLogId) throws EntryLogMetadataMapException {
-        // remove entry log file successfully
-//        coldEntryLogger.flushColdEntrylogger(entryLogId);
-//        entryLogger.archivedEntryLog(entryLogId);
         for (ArchiverThreadListener listener : listeners) {
             listener.onArchiveEntryLog(entryLogId);
         }
@@ -301,15 +294,16 @@ public class ColdStorageArchiveThread implements Runnable {
             try {
                 File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
                 File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-//                Files.copy(entrylogFile.toPath(), coldStorageFile.toPath());
                 this.archiveWithRateLimit(entrylogFile, coldEntryFile);
                 this.removeEntryLogByArchive(entryLogId);
                 stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
                 if (entryLogId > archivedMaxLogId.get()) {
                     archivedMaxLogId.set(entryLogId);
                 }
-                LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
-                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
+                            ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
+                }
             } catch (IOException ex) {
                 LOG.warn("EntryLog={}-{} is not found during archiving process",
                         entryLogId, Long.toHexString(entryLogId), ex);
@@ -320,53 +314,11 @@ public class ColdStorageArchiveThread implements Runnable {
                 LOG.error("Unexpected exception while archiving entryLog={}-{}",
                         entryLogId, Long.toHexString(entryLogId), unexpected);
             }
-
-//            try (InputStream inputStream = Files.newInputStream(
-//                    new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath());
-//                 OutputStream outputStream = Files.newOutputStream(
-//                         new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX).toPath())
-//            ) {
-//                this.archiveWithRateLimit(inputStream, outputStream);
-//                this.removeEntryLogByArchive(entryLogId);
-//                stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
-//                LOG.info("LedgerDir={}, coldLedgerDir={}, Archived entryLog={}-{}",
-//                        ledgerDir, coldLedgerDir, entryLogId, Long.toHexString(entryLogId));
-//            } catch (IOException e) {
-//                LOG.warn("EntryLog={}-{} is not found during archiving process",
-//                        entryLogId, Long.toHexString(entryLogId), e);
-//            } catch (EntryLogMetadataMapException e) {
-//                LOG.error("Error in entryLog-metadatamap, Failed to archive entryLog={}-{}",
-//                        entryLogId, Long.toHexString(entryLogId), e);
-//            }
-
         });
-//        entryLogger.archivedLogIds();
         LOG.info("LedgerDir={}, coldLedgerDir={}, archiveToColdStorage finished, archivedMaxLogId={}-{}",
                 ledgerDir, coldLedgerDir, archivedMaxLogId.get(), Long.toHexString(archivedMaxLogId.get()));
-//        setLastArchivedLogId(ledgerDir, archivedMaxLogId.get());
         this.numActiveEntryLogs = entryLogMetaMap.size();
         this.totalEntryLogSize = totalEntryLogSizeAcc.get();
-    }
-
-    /**
-     * writes the given id to the "lastArchivedId" file in the given directory.
-     */
-    private void setLastArchivedLogId(File dir, long logId) throws IOException {
-        FileOutputStream fos;
-        fos = new FileOutputStream(new File(dir, "lastArchivedId"));
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos, UTF_8));
-        try {
-            bw.write(Long.toHexString(logId) + "\n");
-            bw.flush();
-        } catch (IOException e) {
-            LOG.warn("Failed write lastArchivedId file");
-        } finally {
-            try {
-                bw.close();
-            } catch (IOException e) {
-                LOG.error("Could not close lastArchivedId file in {}", dir.getPath());
-            }
-        }
     }
 
     /**
@@ -435,18 +387,6 @@ public class ColdStorageArchiveThread implements Runnable {
         modified.getValue();
     }
 
-    private void archiveWithRateLimit(InputStream inputStream, OutputStream outputStream)
-            throws IOException {
-        byte[] buffer = new byte[archiveReadBufferSize];
-        int bytesRead;
-        while ((bytesRead = inputStream.read(buffer, 0, buffer.length)) >= 0) {
-            if (throttler != null) {
-                throttler.acquire(bytesRead);
-            }
-            outputStream.write(buffer, 0, bytesRead);
-        }
-    }
-
     private void archiveWithRateLimit(File entryLogFile, File coldEntryLogFile) throws IOException {
         FileChannel writeChannel = new RandomAccessFile(coldEntryLogFile, "rw").getChannel();
         FileChannel readChannel = new RandomAccessFile(entryLogFile, "r").getChannel();
@@ -479,7 +419,6 @@ public class ColdStorageArchiveThread implements Runnable {
         gcExecutor.shutdownNow();
         ReferenceCountUtil.release(readBuffer);
         try {
-//            setLastArchivedLogId(ledgerDir, archivedMaxLogId.get());
             entryLogMetaMap.close();
         } catch (Exception e) {
             LOG.warn("Failed to close entryLog metadata-map", e);

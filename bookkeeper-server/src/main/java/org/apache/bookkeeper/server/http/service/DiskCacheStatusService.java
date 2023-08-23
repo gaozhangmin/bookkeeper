@@ -20,7 +20,6 @@ package org.apache.bookkeeper.server.http.service;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.apache.bookkeeper.bookie.DiskCacheDownGradeStatus;
-import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
 import org.apache.bookkeeper.common.util.JsonUtil;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.http.HttpServer;
