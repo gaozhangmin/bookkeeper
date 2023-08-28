@@ -393,7 +393,7 @@ public class ColdStorageArchiveThread implements Runnable {
         BufferedChannel bufferedWriteChannel = new BufferedChannel(
                 allocator, writeChannel, conf.getArchiveWriteBufferSize(), conf.getFlushIntervalInBytes());
         BufferedReadChannel bufferedReadChannel =
-                new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize());
+                new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize(), true);
 
         long pos = 0;
         int bytesRead;

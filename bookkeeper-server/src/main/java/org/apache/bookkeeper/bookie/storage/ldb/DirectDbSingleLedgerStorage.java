@@ -491,6 +491,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
     public void checkpoint(CheckpointSource.Checkpoint checkpoint) throws IOException {
         CheckpointSource.Checkpoint thisCheckpoint = checkpointSource.newCheckpoint();
         if (lastCheckpoint.compareTo(checkpoint) > 0) {
+            LOG.info("Skip checkpoint");
             return;
         }
 
@@ -1613,21 +1614,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     Thread.currentThread().interrupt();
                     LOG.info("ForceWrite thread interrupted");
                     running = false;
-                } finally {
-                    cleanupExecutor.execute(() -> {
-                        // There can only be one single cleanup task running because the cleanupExecutor
-                        // is single-threaded
-                        try {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Removing deleted ledgers from db indexes");
-                            }
-
-                            entryLocationIndex.removeOffsetFromDeletedLedgers();
-                            ledgerIndex.removeDeletedLedgers();
-                        } catch (Throwable t) {
-                            LOG.warn("Failed to cleanup db indexes", t);
-                        }
-                    });
                 }
             }
             // Regardless of what caused us to exit, we should notify the

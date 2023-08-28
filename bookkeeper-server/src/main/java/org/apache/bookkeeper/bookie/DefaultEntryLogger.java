@@ -895,7 +895,7 @@ public class DefaultEntryLogger implements EntryLogger {
 
     @Override
     public ByteBuf readEntry(long location) throws IOException, Bookie.NoEntryException {
-        return internalReadEntry(location, -1L, -1L, false /* validateEntry */);
+        return internalReadEntry(-1L, -1L, location, false /* validateEntry */);
     }
 
 
@@ -976,9 +976,13 @@ public class DefaultEntryLogger implements EntryLogger {
         }
         // We set the position of the write buffer of this buffered channel to Long.MAX_VALUE
         // so that there are no overlaps with the write buffer while reading
-        fc = new BufferedReadChannel(newFc, conf.getReadBufferBytes());
+        fc = new BufferedReadChannel(newFc, conf.getReadBufferBytes(), entryLoggerAllocator.isSealed(entryLogId));
         putInReadChannels(entryLogId, fc);
         return fc;
+    }
+
+    void clearCompactingLogId() {
+        entryLoggerAllocator.clearCompactingLogId();
     }
 
     /**
