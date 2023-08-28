@@ -1012,7 +1012,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
             // Try to read more entries
             long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
-            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation);
+            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation, false);
         } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Reading entry from diskCache={}. entryLogId={}-{}-{}", ledgerBaseDir,
@@ -1026,12 +1026,15 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
             }
             readCache.put(ledgerId, entryId, entry);
+            long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
+            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation, true);
         }
 
         return entry;
     }
 
-    private void fillReadAheadCache(long orginalLedgerId, long firstEntryId, long firstEntryLocation) {
+    private void fillReadAheadCache(long orginalLedgerId, long firstEntryId,
+                                    long firstEntryLocation, boolean readFromCache) {
         long readAheadStartNano = MathUtils.nowInNano();
         int count = 0;
         long size = 0;
@@ -1042,20 +1045,22 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             long currentEntryLocation = firstEntryLocation;
 
             while (chargeReadAheadCache(count, size) && currentEntryLogId == firstEntryLogId) {
-                ByteBuf entry = coldEntryLogger.readEntry(orginalLedgerId,
-                        firstEntryId, currentEntryLocation);
-
+                ByteBuf entry;
+                if (readFromCache) {
+                    entry = entryLogger.readEntry(currentEntryLocation);
+                } else {
+                    entry = coldEntryLogger.readEntry(currentEntryLocation);
+                }
                 try {
                     long currentEntryLedgerId = entry.getLong(0);
                     long currentEntryId = entry.getLong(8);
 
                     if (currentEntryLedgerId != orginalLedgerId) {
-                        // Found an entry belonging to a different ledger, stopping read-ahead
-                        break;
+                        continue;
                     }
 
                     // Insert entry in read cache
-                    readCache.put(orginalLedgerId, currentEntryId, entry);
+                    readCache.put(currentEntryLedgerId, currentEntryId, entry);
 
                     count++;
                     firstEntryId++;
