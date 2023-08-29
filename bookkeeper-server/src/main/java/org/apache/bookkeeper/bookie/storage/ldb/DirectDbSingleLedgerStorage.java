@@ -1055,10 +1055,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     long currentEntryLedgerId = entry.getLong(0);
                     long currentEntryId = entry.getLong(8);
 
-                    if (currentEntryLedgerId != orginalLedgerId) {
-                        continue;
-                    }
-
                     // Insert entry in read cache
                     readCache.put(currentEntryLedgerId, currentEntryId, entry);
 
