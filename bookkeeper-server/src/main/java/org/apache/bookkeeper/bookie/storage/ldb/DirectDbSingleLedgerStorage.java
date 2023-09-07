@@ -1077,8 +1077,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             return entry;
         }
 
-        dbLedgerStorageStats.getReadCacheMissCounter().inc();
-
         // Read from main storage
         long entryLocation;
         long locationIndexStartNano = MathUtils.nowInNano();
@@ -1098,6 +1096,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         long readEntryStartNano = MathUtils.nowInNano();
         long entryLogId = logIdForOffset(entryLocation);
         if (!cachedEntryLogIdsCache.contains(entryLogId)) {
+            dbLedgerStorageStats.getReadCacheMissCounter().inc();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Reading entry from coldStorage={}. entryLogId={}-{}-{}", coldLedgerBaseDir,
                         entryLogId, Long.toHexString(entryLogId), posForOffset(entryLocation));
