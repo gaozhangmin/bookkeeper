@@ -26,6 +26,7 @@ import org.apache.bookkeeper.bookie.CheckpointSource;
 import org.apache.bookkeeper.bookie.Checkpointer;
 import org.apache.bookkeeper.bookie.ColdStorageArchiveThread;
 import org.apache.bookkeeper.bookie.CompactableLedgerStorage;
+import org.apache.bookkeeper.bookie.DefaultEntryLogger;
 import org.apache.bookkeeper.bookie.DiskCacheDownGradeStatus;
 import org.apache.bookkeeper.bookie.EntryLocation;
 import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
@@ -215,7 +216,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         this.entryLogger = entryLogger;
         this.entryLogger.addListener(this.cachedEntryLogIdsCache::add);
         this.coldEntryLogger = coldEntryLogger;
-        coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerManager, ledgerDirsManager,
+        coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerDirsManager,
                 coldLedgerDirsManager, this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger,
                 allocator);
         coldStorageBackupThread.addListener(this.cachedEntryLogIdsCache::remove);
@@ -255,6 +256,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         this.aliveListener = aliveListener;
     }
 
+    @Override
     public boolean downgrading(long ledgerId) {
         return downgrading.get();
     }
@@ -487,11 +489,102 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         }
     }
 
+
+    public void flushArchivedEntries() throws IOException {
+        // Only a single flush operation can happen at a time
+        flushMutex.lock();
+        long startTime = -1;
+        try {
+            startTime = MathUtils.nowInNano();
+        } catch (Throwable e) {
+            // Fix spotbugs warning. Should never happen
+            flushMutex.unlock();
+            throw new IOException(e);
+        }
+
+        try {
+            if (writeCache.isEmpty()) {
+                return;
+            }
+            // Swap the write cache so that writes can continue to happen while the flush is
+            // ongoing
+            swapWriteCache();
+
+            long sizeToFlush = writeCacheBeingFlushed.size();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Flushing entries. count: {} -- size {} Mb", writeCacheBeingFlushed.count(),
+                        sizeToFlush / 1024.0 / 1024);
+            }
+
+            // Write all the pending entries into the entry logger and collect the offset
+            // position for each entry
+
+            KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
+            writeCacheBeingFlushed.forEach((ledgerId, entryId, entry) -> {
+                long location = coldEntryLogger.addEntry(ledgerId, entry);
+                entryLocationIndex.addLocation(batch, ledgerId, entryId, location);
+            });
+
+            long entryLoggerStart = MathUtils.nowInNano();
+            coldEntryLogger.flush();
+            dbLedgerStorageStats.getFlushEntryLogStats().registerSuccessfulEvent(
+                    MathUtils.elapsedNanos(entryLoggerStart), TimeUnit.NANOSECONDS);
+
+            long batchFlushStartTime = MathUtils.nowInNano();
+            batch.flush();
+            batch.close();
+            dbLedgerStorageStats.getFlushLocationIndexStats().registerSuccessfulEvent(
+                    MathUtils.elapsedNanos(batchFlushStartTime), TimeUnit.NANOSECONDS);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("DB batch flushed time : {} s",
+                        MathUtils.elapsedNanos(batchFlushStartTime) / (double) TimeUnit.SECONDS.toNanos(1));
+            }
+            // Discard all the entry from the write cache, since they're now persisted
+            writeCacheBeingFlushed.clear();
+
+            double flushTimeSeconds = MathUtils.elapsedNanos(startTime) / (double) TimeUnit.SECONDS.toNanos(1);
+            double flushThroughput = sizeToFlush / 1024.0 / 1024.0 / flushTimeSeconds;
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Flushing done time {} s -- Written {} MB/s", flushTimeSeconds, flushThroughput);
+            }
+            dbLedgerStorageStats.getFlushStats().registerSuccessfulEvent(MathUtils.elapsedNanos(startTime),
+                    TimeUnit.NANOSECONDS);
+
+            dbLedgerStorageStats.getFlushSizeStats().registerSuccessfulValue(sizeToFlush);
+        } catch (IOException e) {
+            dbLedgerStorageStats.getFlushStats().registerFailedEvent(MathUtils.elapsedNanos(startTime),
+                    TimeUnit.NANOSECONDS);
+            // Leave IOExecption as it is
+            throw e;
+        } finally {
+            try {
+                cleanupExecutor.execute(() -> {
+                    // There can only be one single cleanup task running because the cleanupExecutor
+                    // is single-threaded
+                    try {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Removing deleted ledgers from db indexes");
+                        }
+
+                        entryLocationIndex.removeOffsetFromDeletedLedgers();
+                        ledgerIndex.removeDeletedLedgers();
+                    } catch (Throwable t) {
+                        LOG.warn("Failed to cleanup db indexes", t);
+                    }
+                });
+
+                isFlushOngoing.set(false);
+            } finally {
+                flushMutex.unlock();
+            }
+        }
+    }
+
     @Override
     public void checkpoint(CheckpointSource.Checkpoint checkpoint) throws IOException {
         CheckpointSource.Checkpoint thisCheckpoint = checkpointSource.newCheckpoint();
         if (lastCheckpoint.compareTo(checkpoint) > 0) {
-            LOG.info("Skip checkpoint");
             return;
         }
 
@@ -545,7 +638,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             }
 
             long ledgerIndexStartTime = MathUtils.nowInNano();
-            ledgerIndex.flush();
+//            ledgerIndex.flush();
             dbLedgerStorageStats.getFlushLedgerIndexStats().registerSuccessfulEvent(
                     MathUtils.elapsedNanos(ledgerIndexStartTime), TimeUnit.NANOSECONDS);
 
@@ -618,6 +711,14 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
     @Override
     public void flush() throws IOException {
+        if (downgrading.get()) {
+            flushWithCheckpoint();
+        } else {
+            flushArchivedEntries();
+        }
+    }
+
+    public void flushWithCheckpoint() throws IOException {
         CheckpointSource.Checkpoint cp = checkpointSource.newCheckpoint();
         checkpoint(cp);
         if (singleLedgerDirs) {
@@ -801,7 +902,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         && downgrading.compareAndSet(true, false)) {
                     LOG.info("Disk {} is UnderWarnThreshold. Upgrade to disk cache", disk);
                     try {
-                        flush();
+                        flushWithCheckpoint();
                     } catch (IOException e) {
                         LOG.error("Error flushing coldEntryLogger during disabling downgradeToColdStorage", e);
                     }
@@ -1012,7 +1113,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
             // Try to read more entries
             long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
-            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation, false);
+            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation);
         } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Reading entry from diskCache={}. entryLogId={}-{}-{}", ledgerBaseDir,
@@ -1026,15 +1127,12 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
             }
             readCache.put(ledgerId, entryId, entry);
-            long nextEntryLocation = entryLocation + 4 /* size header */ + entry.readableBytes();
-            fillReadAheadCache(ledgerId, entryId + 1, nextEntryLocation, true);
         }
 
         return entry;
     }
 
-    private void fillReadAheadCache(long orginalLedgerId, long firstEntryId,
-                                    long firstEntryLocation, boolean readFromCache) {
+    private void fillReadAheadCache(long orginalLedgerId, long firstEntryId, long firstEntryLocation) {
         long readAheadStartNano = MathUtils.nowInNano();
         int count = 0;
         long size = 0;
@@ -1045,15 +1143,15 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             long currentEntryLocation = firstEntryLocation;
 
             while (chargeReadAheadCache(count, size) && currentEntryLogId == firstEntryLogId) {
-                ByteBuf entry;
-                if (readFromCache) {
-                    entry = entryLogger.readEntry(currentEntryLocation);
-                } else {
-                    entry = coldEntryLogger.readEntry(currentEntryLocation);
-                }
+                ByteBuf entry = coldEntryLogger.readEntry(orginalLedgerId, firstEntryId, currentEntryLocation);
                 try {
                     long currentEntryLedgerId = entry.getLong(0);
                     long currentEntryId = entry.getLong(8);
+
+                    if (currentEntryLedgerId != orginalLedgerId) {
+                        // Found an entry belonging to a different ledger, stopping read-ahead
+                        break;
+                    }
 
                     // Insert entry in read cache
                     readCache.put(currentEntryLedgerId, currentEntryId, entry);
@@ -1164,10 +1262,10 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         if (!inserted) {
             triggerFlushAndAddEntry(ledgerId, entryId, entry);
         }
-
         // after successfully insert the entry, update LAC and notify the watchers
-        updateCachedLacIfNeeded(ledgerId, lac);
-
+        if (downgrading.get()) {
+            updateCachedLacIfNeeded(ledgerId, lac);
+        }
         dbLedgerStorageStats.getColdAddEntryStats().registerSuccessfulValue(MathUtils.elapsedMicroSec(startTime));
         return entryId;
     }
@@ -1309,11 +1407,12 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
     @Override
     public void run() {
+        LOG.info("Starting DirectDbLedgerStorage on {}", ledgerBaseDir);
         if (coldStorageBackupThread != null) {
             coldStorageBackupThread.start();
         }
         gcThread.start();
-        LOG.info("Starting DirectDbLedgerStorage on {}", ledgerBaseDir);
+
         ThreadRegistry.register(THREAD_NAME, 0);
 
         RecyclableArrayList<QueueEntry> toFlush = entryListRecycler.newInstance();

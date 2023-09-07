@@ -34,7 +34,9 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
 import org.apache.bookkeeper.bookie.stats.ColdStorageArchiveStats;
+import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
+import org.apache.bookkeeper.bookie.storage.ldb.DirectDbSingleLedgerStorage;
 import org.apache.bookkeeper.bookie.storage.ldb.PersistentEntryLogMetadataMap;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
@@ -90,10 +92,9 @@ public class ColdStorageArchiveThread implements Runnable {
     private volatile long totalEntryLogSize;
     private volatile int numActiveEntryLogs;
 
-    final CompactableLedgerStorage ledgerStorage;
+    final DirectDbSingleLedgerStorage ledgerStorage;
     final ServerConfiguration conf;
     final LedgerDirsManager ledgerDirsManager;
-    final ScanAndCompareGarbageCollector garbageCollector;
 
     final AbstractLogCompactor.Throttler scanThrottler;
 
@@ -101,6 +102,7 @@ public class ColdStorageArchiveThread implements Runnable {
     private final ByteBufAllocator allocator;
     private final ByteBuf readBuffer;
     private final AtomicLong archivedMaxLogId = new AtomicLong(-1L);
+    final ArchiveScannerFactory scannerFactory = new ArchiveScannerFactory();
 
     /**
      * Create a garbage collector thread.
@@ -109,10 +111,10 @@ public class ColdStorageArchiveThread implements Runnable {
      *          Server Configuration Object.
      * @throws IOException
      */
-    public ColdStorageArchiveThread(ServerConfiguration conf, LedgerManager ledgerManager,
+    public ColdStorageArchiveThread(ServerConfiguration conf,
                                     final LedgerDirsManager ledgerDirsManager,
                                     final LedgerDirsManager coldLedgerDirsManager,
-                                    final CompactableLedgerStorage ledgerStorage,
+                                    final DirectDbSingleLedgerStorage ledgerStorage,
                                     EntryLogger entryLogger,
                                     EntryLogger coldEntryLogger, StatsLogger statsLogger,
                                     ByteBufAllocator allocator) throws IOException {
@@ -127,7 +129,6 @@ public class ColdStorageArchiveThread implements Runnable {
         this.ledgerStorage = ledgerStorage;
         this.numActiveEntryLogs = 0;
         this.totalEntryLogSize = 0L;
-        this.garbageCollector = new ScanAndCompareGarbageCollector(ledgerManager, ledgerStorage, conf, statsLogger);
         this.stats = new ColdStorageArchiveStats(
                 statsLogger,
                 () -> numActiveEntryLogs,
@@ -196,11 +197,6 @@ public class ColdStorageArchiveThread implements Runnable {
         };
     }
 
-    @VisibleForTesting
-    EntryLogMetadataMap getEntryLogMetaMap() {
-        return entryLogMetaMap;
-    }
-
 
     public void start() {
         if (scheduledFuture != null) {
@@ -261,7 +257,7 @@ public class ColdStorageArchiveThread implements Runnable {
     protected void removeEmptyEntryLog(long entryLogId) throws EntryLogMetadataMapException {
         // remove entry log file successfully
         if (entryLogger.removeEntryLog(entryLogId)) {
-            LOG.info("Removing empty EntryLog={}-{}", entryLogId, Long.toHexString(entryLogId));
+            LOG.info("Removing empty EntryLog={}-{} during archiving", entryLogId, Long.toHexString(entryLogId));
             entryLogMetaMap.remove(entryLogId);
         }
     }
@@ -292,9 +288,12 @@ public class ColdStorageArchiveThread implements Runnable {
                 return;
             }
             try {
-                File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-                File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-                this.archiveWithRateLimit(entrylogFile, coldEntryFile);
+                if (ledgerStorage.downgrading(-1L)) {
+                    archiveWithRateLimit(entryLogId);
+                } else {
+                    entryLogger.scanEntryLog(meta.getEntryLogId(), scannerFactory.newScanner(meta));
+                    ledgerStorage.flushArchivedEntries();
+                }
                 this.removeEntryLogByArchive(entryLogId);
                 stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
                 if (entryLogId > archivedMaxLogId.get()) {
@@ -387,29 +386,39 @@ public class ColdStorageArchiveThread implements Runnable {
         modified.getValue();
     }
 
-    private void archiveWithRateLimit(File entryLogFile, File coldEntryLogFile) throws IOException {
-        FileChannel writeChannel = new RandomAccessFile(coldEntryLogFile, "rw").getChannel();
-        FileChannel readChannel = new RandomAccessFile(entryLogFile, "r").getChannel();
-        BufferedChannel bufferedWriteChannel = new BufferedChannel(
-                allocator, writeChannel, conf.getArchiveWriteBufferSize(), conf.getFlushIntervalInBytes());
-        BufferedReadChannel bufferedReadChannel =
-                new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize(), true);
+    private void archiveWithRateLimit(long entryLogId) {
+        try {
+            File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
+            File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
+            FileChannel writeChannel = new RandomAccessFile(coldEntryFile, "rw").getChannel();
+            FileChannel readChannel = new RandomAccessFile(entrylogFile, "r").getChannel();
+            BufferedChannel bufferedWriteChannel = new BufferedChannel(
+                    allocator, writeChannel, conf.getArchiveWriteBufferSize(), conf.getFlushIntervalInBytes());
+            BufferedReadChannel bufferedReadChannel =
+                    new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize());
 
-        long pos = 0;
-        int bytesRead;
-        while (pos < bufferedReadChannel.size()) {
-            if (throttler != null) {
-                throttler.acquire(conf.getArchiveReadBufferSize());
+            long pos = 0;
+            int bytesRead;
+            while (pos < bufferedReadChannel.size()) {
+                if (throttler != null) {
+                    throttler.acquire(conf.getArchiveReadBufferSize());
+                }
+                bytesRead = bufferedReadChannel.read(readBuffer, pos);
+                bufferedWriteChannel.write(readBuffer);
+                readBuffer.clear();
+                pos += bytesRead;
+                stats.getArchivedEntryLogSize().addCount(bytesRead);
             }
-            bytesRead = bufferedReadChannel.read(readBuffer, pos);
-            bufferedWriteChannel.write(readBuffer);
-            readBuffer.clear();
-            pos += bytesRead;
-            stats.getArchivedEntryLogSize().addCount(bytesRead);
+            bufferedWriteChannel.flushAndForceWrite(true);
+            bufferedWriteChannel.close();
+            readChannel.close();
+        } catch (IOException ex) {
+            LOG.warn("EntryLog={}-{} is not found during archiving process",
+                    entryLogId, Long.toHexString(entryLogId), ex);
+        } catch (Exception unexpected) {
+            LOG.error("Unexpected exception while archiving entryLog={}-{}",
+                    entryLogId, Long.toHexString(entryLogId), unexpected);
         }
-        bufferedWriteChannel.flushAndForceWrite(true);
-        bufferedWriteChannel.close();
-        readChannel.close();
     }
 
     @SuppressFBWarnings("SWL_SLEEP_WITH_LOCK_HELD")
@@ -435,6 +444,41 @@ public class ColdStorageArchiveThread implements Runnable {
     public void addListener(ArchiverThreadListener listener) {
         if (null != listener) {
             listeners.add(listener);
+        }
+    }
+
+    class ArchiveScannerFactory {
+        EntryLogScanner newScanner(final EntryLogMetadata meta) {
+
+            return new EntryLogScanner() {
+                @Override
+                public boolean accept(long ledgerId) {
+                    return meta.containsLedger(ledgerId);
+                }
+
+                @Override
+                public void process(final long ledgerId, long offset, ByteBuf entry) throws IOException {
+                    while (true) {
+                        int bytesRead = entry.readableBytes();
+                        if (throttler != null) {
+                            throttler.acquire(bytesRead);
+                        }
+                        try {
+                            ledgerStorage.addEntry(entry);
+                            stats.getArchivedEntryLogSize().addCount(bytesRead);
+                            break;
+                        } catch (BookieException be) {
+                            // Wait some time and try again
+                            try {
+                                Thread.sleep(1);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new IOException("Interrupted when archiving entry " + ledgerId);
+                            }
+                        }
+                    }
+                }
+            };
         }
     }
 

@@ -34,8 +34,11 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,29 +56,26 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
  * An allocator pre-allocates entry log files.
  */
 @Slf4j
-public
-class EntryLoggerAllocator {
+public class EntryLoggerAllocator {
 
     private AtomicLong preallocatedLogId;
-    Future<BufferedLogChannel> preallocation = null;
+    Map<String, Future<BufferedLogChannel>> preallocation = new ConcurrentHashMap<>();
     ExecutorService allocatorExecutor;
     private final ServerConfiguration conf;
-    private final LedgerDirsManager ledgerDirsManager;
+    private final List<File> ledgersDirs =  new ArrayList<>();
     private final Object createEntryLogLock = new Object();
     private final Object createCompactionLogLock = new Object();
     private final DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus;
     private final boolean entryLogPreAllocationEnabled;
     private final ByteBufAllocator byteBufAllocator;
     final ByteBuf logfileHeader = Unpooled.buffer(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
-    private long writingLogId = -1;
-    private long writingCompactingLogId = -1;
 
     EntryLoggerAllocator(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
                          DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, long logId,
                          ByteBufAllocator byteBufAllocator) {
         this.conf = conf;
         this.byteBufAllocator = byteBufAllocator;
-        this.ledgerDirsManager = ledgerDirsManager;
+        this.ledgersDirs.addAll(ledgerDirsManager.getAllLedgerDirs());
         this.preallocatedLogId = new AtomicLong(logId);
         this.recentlyCreatedEntryLogsStatus = recentlyCreatedEntryLogsStatus;
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
@@ -91,9 +91,8 @@ class EntryLoggerAllocator {
         logfileHeader.writerIndex(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
 
     }
-
-    public boolean isSealed(long logId) {
-        return logId != writingLogId && logId != writingCompactingLogId;
+    public void addLedgerDirsManager(LedgerDirsManager ledgerDirsManager) {
+        this.ledgersDirs.addAll(ledgerDirsManager.getAllLedgerDirs());
     }
 
     synchronized long getPreallocatedLogId() {
@@ -106,18 +105,15 @@ class EntryLoggerAllocator {
             if (!entryLogPreAllocationEnabled){
                 // create a new log directly
                 bc = allocateNewLog(dirForNextEntryLog);
-                writingLogId = bc.getLogId();
                 return bc;
             } else {
                 // allocate directly to response request
-                if (null == preallocation){
+                if (!preallocation.containsKey(dirForNextEntryLog.getAbsolutePath())){
                     bc = allocateNewLog(dirForNextEntryLog);
-                    writingLogId = bc.getLogId();
                 } else {
                     // has a preallocated entry log
                     try {
-                        bc = preallocation.get();
-                        writingLogId = bc.getLogId();
+                        bc = preallocation.get(dirForNextEntryLog.getAbsolutePath()).get();
                     } catch (ExecutionException ee) {
                         if (ee.getCause() instanceof IOException) {
                             throw (IOException) (ee.getCause());
@@ -131,8 +127,7 @@ class EntryLoggerAllocator {
                         throw new IOException("Interrupted when waiting a new entry log to be allocated.", ie);
                     }
                 }
-                // preallocate a new log in background upon every call
-                preallocation = allocatorExecutor.submit(() -> allocateNewLog(dirForNextEntryLog));
+                preallocation.put(dirForNextEntryLog.getAbsolutePath(), allocatorExecutor.submit(() -> allocateNewLog(dirForNextEntryLog)));
                 return bc;
             }
         }
@@ -140,14 +135,8 @@ class EntryLoggerAllocator {
 
     BufferedLogChannel createNewLogForCompaction(File dirForNextEntryLog) throws IOException {
         synchronized (createCompactionLogLock) {
-            BufferedLogChannel bc = allocateNewLog(dirForNextEntryLog, COMPACTING_SUFFIX);
-            writingCompactingLogId = bc.getLogId();
-            return bc;
+            return allocateNewLog(dirForNextEntryLog, COMPACTING_SUFFIX);
         }
-    }
-
-    void clearCompactingLogId() {
-        writingCompactingLogId = -1;
     }
 
     private synchronized BufferedLogChannel allocateNewLog(File dirForNextEntryLog) throws IOException {
@@ -158,7 +147,6 @@ class EntryLoggerAllocator {
      * Allocate a new log file.
      */
     private synchronized BufferedLogChannel allocateNewLog(File dirForNextEntryLog, String suffix) throws IOException {
-        List<File> ledgersDirs = ledgerDirsManager.getAllLedgerDirs();
         String logFileName;
         // It would better not to overwrite existing entry log files
         File testLogFile = null;
@@ -202,19 +190,23 @@ class EntryLoggerAllocator {
 
 
     private synchronized void closePreAllocateLog() {
-        if (preallocation != null) {
+        if (preallocation.size() > 0) {
             // if preallocate new log success, release the file channel
-            try {
-                BufferedLogChannel bufferedLogChannel = getPreallocationFuture().get(3, TimeUnit.SECONDS);
-                if (bufferedLogChannel != null) {
-                    bufferedLogChannel.close();
+            getPreallocationFuture().forEach((key, future) -> {
+                try {
+                    BufferedLogChannel bufferedLogChannel = future.get(3, TimeUnit.SECONDS);
+                    if (bufferedLogChannel != null) {
+                        bufferedLogChannel.close();
+                    }
+                } catch (InterruptedException e) {
+                    log.warn("interrupted while release preAllocate log");
+                    Thread.currentThread().interrupt();
+                } catch (IOException | ExecutionException | TimeoutException e) {
+                    log.warn("release preAllocate log failed, ignore error");
                 }
-            } catch (InterruptedException e) {
-                log.warn("interrupted while release preAllocate log");
-                Thread.currentThread().interrupt();
-            } catch (IOException | ExecutionException | TimeoutException e) {
-                log.warn("release preAllocate log failed, ignore error");
-            }
+
+            });
+
         }
     }
 
@@ -261,7 +253,7 @@ class EntryLoggerAllocator {
     /**
      * get the preallocation for tests.
      */
-    Future<BufferedLogChannel> getPreallocationFuture(){
+    Map<String, Future<BufferedLogChannel>> getPreallocationFuture(){
         return preallocation;
     }
 }

@@ -419,23 +419,23 @@ public class DefaultEntryLogTest {
         entryLogger = new DefaultEntryLogger(conf, dirsMgr);
         // create a logger whose initialization phase allocating a new entry log
         ((EntryLogManagerBase) entryLogger.getEntryLogManager()).createNewLog(DefaultEntryLogger.UNASSIGNED_LEDGERID);
-        assertNotNull(entryLogger.getEntryLoggerAllocator().getPreallocationFuture());
+        assertTrue(entryLogger.getEntryLoggerAllocator().getPreallocationFuture().size() > 0);
 
         entryLogger.addEntry(1L, generateEntry(1, 1).nioBuffer());
         // the Future<BufferedLogChannel> is not null all the time
-        assertNotNull(entryLogger.getEntryLoggerAllocator().getPreallocationFuture());
+        assertTrue(entryLogger.getEntryLoggerAllocator().getPreallocationFuture().size() > 0);
         entryLogger.close();
 
         // disable pre-allocation case
         conf.setEntryLogFilePreAllocationEnabled(false);
         // create a logger
         entryLogger = new DefaultEntryLogger(conf, dirsMgr);
-        assertNull(entryLogger.getEntryLoggerAllocator().getPreallocationFuture());
+        assertFalse(entryLogger.getEntryLoggerAllocator().getPreallocationFuture().size() > 0);
 
         entryLogger.addEntry(2L, generateEntry(1, 1).nioBuffer());
 
         // the Future<BufferedLogChannel> is null all the time
-        assertNull(entryLogger.getEntryLoggerAllocator().getPreallocationFuture());
+        assertFalse(entryLogger.getEntryLoggerAllocator().getPreallocationFuture().size() > 0);
     }
 
     /**

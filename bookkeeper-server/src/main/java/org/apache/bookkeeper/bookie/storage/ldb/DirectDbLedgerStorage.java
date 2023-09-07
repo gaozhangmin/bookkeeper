@@ -180,6 +180,7 @@ public class DirectDbLedgerStorage implements LedgerStorage {
             DefaultEntryLogger.RecentEntryLogsStatus recentEntryLogsStatus =
                     entrylogger.getRecentlyCreatedEntryLogsStatus();
 
+            entryLoggerAllocator.addLedgerDirsManager(cdm);
             EntryLogger coldEntrylogger = new DefaultEntryLogger(conf, cdm, null, statsLogger,
                     allocator, recentEntryLogsStatus, entryLoggerAllocator);
 
