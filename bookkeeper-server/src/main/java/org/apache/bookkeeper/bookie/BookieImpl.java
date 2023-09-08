@@ -477,7 +477,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         journals = Lists.newArrayList();
         for (int i = 0; i < journalDirectories.size(); i++) {
             journals.add(new Journal(i, journalDirectories.get(i),
-                    conf, ledgerDirsManager, statsLogger.scope(JOURNAL_SCOPE), allocator, journalAliveListener));
+                    conf, coldLedgerDirsManager, statsLogger.scope(JOURNAL_SCOPE), allocator, journalAliveListener));
         }
 
         this.entryLogPerLedgerEnabled = conf.isEntryLogPerLedgerEnabled();
