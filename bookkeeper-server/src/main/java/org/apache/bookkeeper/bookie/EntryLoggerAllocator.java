@@ -69,6 +69,8 @@ public class EntryLoggerAllocator {
     private final boolean entryLogPreAllocationEnabled;
     private final ByteBufAllocator byteBufAllocator;
     final ByteBuf logfileHeader = Unpooled.buffer(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
+    private Map<String, Long> writingLogIds = new ConcurrentHashMap<>();
+    private long writingCompactingLogId = -1;
 
     EntryLoggerAllocator(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
                          DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, long logId,
@@ -91,6 +93,11 @@ public class EntryLoggerAllocator {
         logfileHeader.writerIndex(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
 
     }
+
+    public boolean isSealed(long logId) {
+        return logId != writingCompactingLogId && !writingLogIds.containsValue(logId);
+    }
+
     public void addLedgerDirsManager(LedgerDirsManager ledgerDirsManager) {
         this.ledgersDirs.addAll(ledgerDirsManager.getAllLedgerDirs());
     }
@@ -131,6 +138,18 @@ public class EntryLoggerAllocator {
                 return bc;
             }
         }
+    }
+
+    void setWritingLogId(String dirPath, long lodId) {
+        this.writingLogIds.put(dirPath, lodId);
+    }
+
+    void setWritingCompactingLogId(long logId) {
+        this.writingCompactingLogId = logId;
+    }
+
+    void clearCompactingLogId() {
+        writingCompactingLogId = -1;
     }
 
     BufferedLogChannel createNewLogForCompaction(File dirForNextEntryLog) throws IOException {

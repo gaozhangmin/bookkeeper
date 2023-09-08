@@ -46,11 +46,30 @@ public class BufferedReadChannel extends BufferedChannelBase  {
     long invocationCount = 0;
     long cacheHitCount = 0;
     private boolean closed = false;
+    private long fileSize = -1;
+    final boolean sealed;
 
     public BufferedReadChannel(FileChannel fileChannel, int readCapacity) {
+        this(fileChannel, readCapacity, false);
+    }
+
+    public BufferedReadChannel(FileChannel fileChannel, int readCapacity, boolean sealed) {
         super(fileChannel);
         this.readCapacity = readCapacity;
+        this.sealed = sealed;
         this.readBuffer = Unpooled.buffer(readCapacity);
+    }
+
+    @Override
+    public long size() throws IOException {
+        if (sealed) {
+            if (fileSize == -1) {
+                fileSize = validateAndGetFileChannel().size();
+            }
+            return fileSize;
+        } else {
+            return validateAndGetFileChannel().size();
+        }
     }
 
     /**
@@ -70,7 +89,7 @@ public class BufferedReadChannel extends BufferedChannelBase  {
     public synchronized int read(ByteBuf dest, long pos, int length) throws IOException {
         invocationCount++;
         long currentPosition = pos;
-        long eof = validateAndGetFileChannel().size();
+        long eof = size();
         // return -1 if the given position is greater than or equal to the file's current size.
         if (pos >= eof) {
             return -1;
