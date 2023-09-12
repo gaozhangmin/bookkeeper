@@ -1148,6 +1148,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     long currentEntryId = entry.getLong(8);
 
                     if (currentEntryLedgerId != orginalLedgerId) {
+                        LOG.debug("Ledger id is mismatched, {}-{}", orginalLedgerId, currentEntryLedgerId);
                         // Found an entry belonging to a different ledger, stopping read-ahead
                         break;
                     }
@@ -1161,6 +1162,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
                     currentEntryLocation += 4 + entry.readableBytes();
                     currentEntryLogId = currentEntryLocation >> 32;
+
                 } finally {
                     ReferenceCountUtil.release(entry);
                 }
@@ -1461,14 +1463,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     if (localQueueEntriesLen > 0) {
                         qe = localQueueEntries[localQueueEntriesIdx];
                         localQueueEntries[localQueueEntriesIdx++] = null;
-                        dbLedgerStorageStats.getQueueSize().dec();
-                        dbLedgerStorageStats.getQueueStats()
-                                .registerSuccessfulEvent(MathUtils.elapsedNanos(qe.enqueueTime), TimeUnit.NANOSECONDS);
                     }
-                } else {
-                    dbLedgerStorageStats.getQueueSize().dec();
-                    dbLedgerStorageStats.getQueueStats()
-                            .registerSuccessfulEvent(MathUtils.elapsedNanos(qe.enqueueTime), TimeUnit.NANOSECONDS);
                 }
 
                 if (numEntriesToFlush > 0) {
@@ -1545,6 +1540,9 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 if (qe == null) { // no more queue entry
                     continue;
                 }
+                dbLedgerStorageStats.getQueueSize().dec();
+                dbLedgerStorageStats.getQueueStats()
+                        .registerSuccessfulEvent(MathUtils.elapsedNanos(qe.enqueueTime), TimeUnit.NANOSECONDS);
                 long location = entryLogger.addEntry(qe.ledgerId, qe.entry);
                 entryLocationIndex.addLocation(batch, qe.ledgerId, qe.entryId, location);
                 long lac = qe.entry.getLong(qe.entry.readerIndex() + 16);
