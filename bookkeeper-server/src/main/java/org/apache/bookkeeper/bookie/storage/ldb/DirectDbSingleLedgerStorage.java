@@ -115,6 +115,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
     private final boolean flushWhenQueueEmpty;
     // Threshold after which we flush any buffered  entries
     private final long bufferedEntriesThreshold;
+    private final long bufferedWritesThreshold;
     private volatile boolean running = true;
     private final ForceWriteThread forceWriteThread;
     private final String ledgerBaseDir;
@@ -239,6 +240,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         // we cannot skip flushing for queue empty
         this.flushWhenQueueEmpty = maxGroupWaitInNanos <= 0 || conf.getDirectStorageFlushWhenQueueEmpty();
         this.bufferedEntriesThreshold = conf.getDirectStorageBufferedEntriesThreshold();
+        this.bufferedWritesThreshold = conf.getDirectStorageBufferedWritesThreshold();
         this.forceWriteThread = new ForceWriteThread(this);
         this.callbackTime = ledgerIndexDirStatsLogger.getThreadScopedCounter("callback-time");
         this.flushExecutorTime = ledgerIndexDirStatsLogger.getThreadScopedCounter("db-storage-thread-time");
@@ -638,7 +640,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             }
 
             long ledgerIndexStartTime = MathUtils.nowInNano();
-//            ledgerIndex.flush();
+            ledgerIndex.flush();
             dbLedgerStorageStats.getFlushLedgerIndexStats().registerSuccessfulEvent(
                     MathUtils.elapsedNanos(ledgerIndexStartTime), TimeUnit.NANOSECONDS);
 
@@ -890,6 +892,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     LOG.info("Disk {} is almost full. Downgrade to coldStorage", disk);
                     try {
                         entryLogger.flush();
+                        ledgerIndex.flush();
                     } catch (IOException e) {
                         LOG.error("Error flushing entry logger during downgradeToColdStorage progress", e);
                     }
@@ -1470,8 +1473,8 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                     boolean shouldFlush = false;
                     // We should issue a forceWrite if any of the three conditions below holds good
                     // 1. If the oldest pending entry has been pending for longer than the max wait time
-                    if (maxGroupWaitInNanos > 0 && !groupWhenTimeout && (MathUtils
-                            .elapsedNanos(toFlush.get(0).enqueueTime) > maxGroupWaitInNanos)) {
+                    if (maxGroupWaitInNanos > 0 && !groupWhenTimeout
+                            && (MathUtils.elapsedNanos(toFlush.get(0).enqueueTime) > maxGroupWaitInNanos)) {
                         groupWhenTimeout = true;
                     } else if (maxGroupWaitInNanos > 0 && groupWhenTimeout
                             && (qe == null // no entry to group
@@ -1485,12 +1488,15 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushMaxWaitCounter().inc();
+                        LOG.info("Group timeout1, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     } else if (qe != null
-                            && ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold))) {
+                            && ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold)
+                            || (bufferedWritesThreshold > 0 && batchSize > bufferedWritesThreshold))) {
                         // 2. If we have buffered more than the buffWriteThreshold or bufferedEntriesThreshold
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushMaxOutstandingBytesCounter().inc();
+                        LOG.info("Group timeout2, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     } else if (qe == null && flushWhenQueueEmpty) {
                         // We should get here only if we flushWhenQueueEmpty is true else we would wait
                         // for timeout that would put is past the maxWait threshold
@@ -1499,6 +1505,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushEmptyQueueCounter().inc();
+                        LOG.info("Group timeout3, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     }
 
                     // toFlush is non-null and not empty so should be safe to access getFirst

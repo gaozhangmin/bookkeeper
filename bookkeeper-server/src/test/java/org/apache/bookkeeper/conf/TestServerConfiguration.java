@@ -133,7 +133,7 @@ public class TestServerConfiguration {
         }
 
         try {
-            conf.setEntryLogSizeLimit(2 * 1024 * 1024 * 1024L - 1);
+            conf.setEntryLogSizeLimit(3 * 1024 * 1024 * 1024L - 1);
             fail("Should fail setEntryLogSizeLimit size `logSizeLimit` is too large");
         } catch (IllegalArgumentException iae) {
             // expected

@@ -120,6 +120,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String DIRECT_STORAGE_MAX_GROUP_WAIT_MSEC = "directStorageMaxGroupWaitMSec";
     protected static final String DIRECT_STORAGE_FLUSH_WHEN_QUEUE_EMPTY = "directStorageFlushWhenQueueEmpty";
     protected static final String DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD = "directStorageBufferedEntriesThreshold";
+    protected static final String DIRECT_STORAGE_BUFFERED_WRITES_THRESHOLD = "directStorageBufferedWritesThreshold";
 
 
 
@@ -4231,6 +4232,15 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setDirectStorageBufferedEntriesThreshold(int maxEntries) {
         setProperty(DIRECT_STORAGE_BUFFERED_ENTRIES_THRESHOLD, maxEntries);
+        return this;
+    }
+
+    public long getDirectStorageBufferedWritesThreshold() {
+        return getLong(DIRECT_STORAGE_BUFFERED_WRITES_THRESHOLD, 512 * 1024);
+    }
+
+    public ServerConfiguration setDirectStorageBufferedWritesThreshold(long maxBytes) {
+        setProperty(DIRECT_STORAGE_BUFFERED_WRITES_THRESHOLD, maxBytes);
         return this;
     }
 }
