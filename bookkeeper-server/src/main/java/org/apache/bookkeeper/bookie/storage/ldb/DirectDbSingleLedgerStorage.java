@@ -1488,7 +1488,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushMaxWaitCounter().inc();
-                        LOG.info("Group timeout1, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     } else if (qe != null
                             && ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold)
                             || (bufferedWritesThreshold > 0 && batchSize > bufferedWritesThreshold))) {
@@ -1496,7 +1495,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushMaxOutstandingBytesCounter().inc();
-                        LOG.info("Group timeout2, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     } else if (qe == null && flushWhenQueueEmpty) {
                         // We should get here only if we flushWhenQueueEmpty is true else we would wait
                         // for timeout that would put is past the maxWait threshold
@@ -1505,7 +1503,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         groupWhenTimeout = false;
                         shouldFlush = true;
                         dbLedgerStorageStats.getFlushEmptyQueueCounter().inc();
-                        LOG.info("Group timeout3, flush entries: {}, queue size: {}", toFlush.size(), batchSize/1024);
                     }
 
                     // toFlush is non-null and not empty so should be safe to access getFirst
