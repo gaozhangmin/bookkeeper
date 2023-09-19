@@ -29,6 +29,7 @@ import org.apache.bookkeeper.http.HttpServer;
 import org.apache.bookkeeper.http.service.HttpEndpointService;
 import org.apache.bookkeeper.http.service.HttpServiceRequest;
 import org.apache.bookkeeper.http.service.HttpServiceResponse;
+import org.apache.bookkeeper.proto.BookieServer;
 
 /**
  * HttpEndpointService that handle Bookkeeper Configuration related http request.
@@ -36,10 +37,12 @@ import org.apache.bookkeeper.http.service.HttpServiceResponse;
 public class ConfigurationService implements HttpEndpointService {
 
     protected ServerConfiguration conf;
+    protected BookieServer bookieServer;
 
-    public ConfigurationService(ServerConfiguration conf) {
+    public ConfigurationService(ServerConfiguration conf, BookieServer bookieServer) {
         checkNotNull(conf);
         this.conf = conf;
+        this.bookieServer = bookieServer;
     }
 
     @Override
@@ -61,6 +64,10 @@ public class ConfigurationService implements HttpEndpointService {
             HashMap<String, Object> configMap = JsonUtil.fromJson(requestBody, HashMap.class);
             for (Map.Entry<String, Object> entry: configMap.entrySet()) {
                 conf.setProperty(entry.getKey(), entry.getValue());
+            }
+            if (configMap.containsKey("diskUsageThreshold") || configMap.containsKey("diskUsageWarnThreshold")) {
+                bookieServer.getBookie().getDiskChecker()
+                        .setDiskSpaceThreshold(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold());
             }
 
             response.setCode(HttpServer.StatusCode.OK);

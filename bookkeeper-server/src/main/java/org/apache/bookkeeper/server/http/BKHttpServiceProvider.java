@@ -194,7 +194,7 @@ public class BKHttpServiceProvider implements HttpServiceProvider {
             case HEARTBEAT:
                 return new HeartbeatService();
             case SERVER_CONFIG:
-                return new ConfigurationService(configuration);
+                return new ConfigurationService(configuration, bookieServer);
             case METRICS:
                 return new MetricsService(configuration, statsProvider);
 
@@ -259,7 +259,7 @@ public class BKHttpServiceProvider implements HttpServiceProvider {
                 return new DiskCacheStatusService(configuration, bookieServer);
 
             default:
-                return new ConfigurationService(configuration);
+                return new ConfigurationService(configuration, bookieServer);
         }
     }
 

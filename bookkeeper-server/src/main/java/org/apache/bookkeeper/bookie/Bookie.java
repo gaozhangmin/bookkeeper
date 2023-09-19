@@ -24,6 +24,7 @@ import java.util.PrimitiveIterator;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.util.DiskChecker;
 
 /**
  * Interface for the bookie.
@@ -35,6 +36,8 @@ public interface Bookie {
     boolean isRunning();
     int getExitCode();
     int shutdown();
+
+    DiskChecker getDiskChecker();
 
     boolean isAvailableForHighPriorityWrites();
     boolean isReadOnly();

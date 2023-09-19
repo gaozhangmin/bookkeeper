@@ -270,7 +270,7 @@ public class DiskChecker {
      *
      * @param diskSpaceThreshold
      */
-    void setDiskSpaceThreshold(float diskSpaceThreshold, float diskUsageWarnThreshold) {
+    public void setDiskSpaceThreshold(float diskSpaceThreshold, float diskUsageWarnThreshold) {
         validateThreshold(diskSpaceThreshold, diskUsageWarnThreshold);
         this.diskUsageThreshold = diskSpaceThreshold;
         this.diskUsageWarnThreshold = diskUsageWarnThreshold;

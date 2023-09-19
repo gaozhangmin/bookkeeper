@@ -129,6 +129,8 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
 
     private final boolean writeDataToJournal;
 
+    private final DiskChecker diskChecker;
+
     // Write Callback do nothing
     static class NopWriteCallback implements WriteCallback {
         @Override
@@ -459,6 +461,7 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
         if (coldLedgerDirsManager != null) {
             dirsManagers.add(coldLedgerDirsManager);
         }
+        this.diskChecker = diskChecker;
         this.dirsMonitor = new LedgerDirsMonitor(conf, diskChecker, dirsManagers);
         try {
             this.dirsMonitor.init();
@@ -684,6 +687,11 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
             // After LedgerStorage flush, SyncThread should persist this to disk
             journal.setLastLogMark(id, scanOffset);
         }
+    }
+
+    @Override
+    public DiskChecker getDiskChecker() {
+        return diskChecker;
     }
 
     @Override

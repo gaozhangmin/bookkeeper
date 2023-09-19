@@ -46,7 +46,7 @@ import org.slf4j.LoggerFactory;
  */
 class LedgerDirsMonitor {
     private static final Logger LOG = LoggerFactory.getLogger(LedgerDirsMonitor.class);
-    private static final float DISK_USAGE_DELTA = 0.2f;
+    private static final float DISK_USAGE_DELTA = 0.1f;
 
     private final int interval;
     private final ServerConfiguration conf;
