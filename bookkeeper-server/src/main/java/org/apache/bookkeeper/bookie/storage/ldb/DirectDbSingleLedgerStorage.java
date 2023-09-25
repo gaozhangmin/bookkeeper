@@ -1510,9 +1510,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         batch.flush();
                         batch.close();
                         batch = entryLocationIndex.newBatch();
-                        flushWatcher.reset().start();
-                        dbLedgerStorageStats.getDirectDbFlushStats().registerSuccessfulEvent(
-                                flushWatcher.stop().elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
 
                         // Trace the lifetime of entries through persistence
                         if (LOG.isDebugEnabled()) {
@@ -1575,6 +1572,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         } finally {
             try {
                 batch.flush();
+                batch.close();
             } catch (Exception ioe) {
                 LOG.error("Exception in exit loop", ioe);
             }
