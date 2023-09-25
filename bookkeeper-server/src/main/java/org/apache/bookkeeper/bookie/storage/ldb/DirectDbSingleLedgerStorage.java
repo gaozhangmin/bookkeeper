@@ -1507,6 +1507,9 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
                     // toFlush is non-null and not empty so should be safe to access getFirst
                     if (shouldFlush) {
+                        entryLogger.flushWithoutForceWrite();
+                        ledgerIndex.flush();
+
                         batch.flush();
                         batch.close();
                         batch = entryLocationIndex.newBatch();
@@ -1609,8 +1612,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
         private void flushFileToDisk() throws IOException {
             if (!flushed) {
-                entryLogger.flush();
-                ledgerIndex.flush();
+                entryLogger.forceWrite();
                 flushed = true;
             }
         }

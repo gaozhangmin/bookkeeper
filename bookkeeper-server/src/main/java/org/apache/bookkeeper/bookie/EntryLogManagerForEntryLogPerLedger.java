@@ -600,14 +600,22 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
     }
 
     @Override
-    void flushCurrentLogs() throws IOException {
+    void flushCurrentLogs(boolean forceWrite) throws IOException {
         Set<BufferedLogChannelWithDirInfo> copyOfCurrentLogsWithDirInfo = getCopyOfCurrentLogs();
         for (BufferedLogChannelWithDirInfo logChannelWithDirInfo : copyOfCurrentLogsWithDirInfo) {
             /**
              * flushCurrentLogs method is called during checkpoint, so metadata
              * of the file also should be force written.
              */
-            flushLogChannel(logChannelWithDirInfo.getLogChannel(), true);
+            flushLogChannel(logChannelWithDirInfo.getLogChannel(), true, forceWrite);
+        }
+    }
+
+    @Override
+    public void forceWriteCurrentLogs() throws IOException {
+        Set<BufferedLogChannelWithDirInfo> copyOfCurrentLogsWithDirInfo = getCopyOfCurrentLogs();
+        for (BufferedLogChannelWithDirInfo logChannelWithDirInfo : copyOfCurrentLogsWithDirInfo) {
+            logChannelWithDirInfo.getLogChannel().forceWrite(true);
         }
     }
 

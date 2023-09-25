@@ -106,12 +106,15 @@ abstract class EntryLogManagerBase implements EntryLogManager {
     /*
      * flush current logs.
      */
-    abstract void flushCurrentLogs() throws IOException;
+    abstract void flushCurrentLogs(boolean forceWrite) throws IOException;
 
     /*
      * flush rotated logs.
      */
     abstract void flushRotatedLogs() throws IOException;
+
+
+    abstract void forceWriteCurrentLogs() throws IOException;
 
     List<BufferedLogChannel> getRotatedLogChannels() {
         return rotatedLogChannels;
@@ -119,13 +122,28 @@ abstract class EntryLogManagerBase implements EntryLogManager {
 
     @Override
     public void flush() throws IOException {
-        flushCurrentLogs();
+        flushCurrentLogs(true);
         flushRotatedLogs();
     }
 
-    void flushLogChannel(BufferedLogChannel logChannel, boolean forceMetadata) throws IOException {
+    @Override
+    public void flushWithoutForceWrite() throws IOException {
+        flushCurrentLogs(false);
+    }
+
+    @Override
+    public void forceWrite() throws IOException {
+        forceWriteCurrentLogs();
+        flushRotatedLogs();
+    }
+
+    void flushLogChannel(BufferedLogChannel logChannel, boolean forceMetadata, boolean forceWrite) throws IOException {
         if (logChannel != null) {
-            logChannel.flushAndForceWrite(forceMetadata);
+            if (forceWrite) {
+                logChannel.flushAndForceWrite(forceMetadata);
+            } else {
+                logChannel.flush();
+            }
             if (log.isDebugEnabled()) {
                 log.debug("Flush and sync current entry logger {}", logChannel.getLogId());
             }

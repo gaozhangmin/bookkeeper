@@ -73,6 +73,10 @@ public interface EntryLogger extends AutoCloseable {
      */
     void flush() throws IOException;
 
+    void flushWithoutForceWrite() throws IOException;
+
+    void forceWrite() throws IOException;
+
     @Override
     void close() throws IOException;
 

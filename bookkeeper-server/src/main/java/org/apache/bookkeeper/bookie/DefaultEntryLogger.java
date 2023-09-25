@@ -670,6 +670,16 @@ public class DefaultEntryLogger implements EntryLogger {
         entryLogManager.flush();
     }
 
+    @Override
+    public void flushWithoutForceWrite() throws IOException {
+        entryLogManager.flushWithoutForceWrite();
+    }
+
+    @Override
+    public void forceWrite() throws IOException {
+        entryLogManager.forceWrite();
+    }
+
     long addEntry(long ledger, ByteBuffer entry) throws IOException {
         return entryLogManager.addEntry(ledger, Unpooled.wrappedBuffer(entry), true);
     }

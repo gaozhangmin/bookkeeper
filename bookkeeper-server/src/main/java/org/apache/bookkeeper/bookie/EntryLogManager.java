@@ -56,6 +56,10 @@ interface EntryLogManager {
      */
     void flush() throws IOException;
 
+    void flushWithoutForceWrite() throws IOException;
+
+    void forceWrite() throws IOException;
+
     /*
      * close current logs.
      */

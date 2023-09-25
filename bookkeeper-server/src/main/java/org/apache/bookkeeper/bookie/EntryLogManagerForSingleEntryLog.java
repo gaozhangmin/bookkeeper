@@ -163,14 +163,22 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
     }
 
     @Override
-    public void flushCurrentLogs() throws IOException {
+    public void flushCurrentLogs(boolean forceWrite) throws IOException {
         BufferedLogChannel currentActiveLogChannel = activeLogChannel;
         if (currentActiveLogChannel != null) {
             /**
              * flushCurrentLogs method is called during checkpoint, so
              * metadata of the file also should be force written.
              */
-            flushLogChannel(currentActiveLogChannel, true);
+            flushLogChannel(currentActiveLogChannel, true, forceWrite);
+        }
+    }
+
+    @Override
+    public void forceWriteCurrentLogs() throws IOException {
+        BufferedLogChannel currentActiveLogChannel = activeLogChannel;
+        if (currentActiveLogChannel != null) {
+            currentActiveLogChannel.forceWrite(true);
         }
     }
 
