@@ -143,6 +143,7 @@ import org.apache.bookkeeper.tls.SecurityHandlerFactory.NodeType;
 import org.apache.bookkeeper.util.AvailabilityOfEntriesOfLedger;
 import org.apache.bookkeeper.util.ByteBufList;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.util.collections.ConcurrentOpenHashMap;
 import org.apache.bookkeeper.util.collections.SynchronizedHashMultiMap;
@@ -1374,7 +1375,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private static class ReadV2ResponseCallback implements Runnable {
+    private static class ReadV2ResponseCallback extends SafeRunnable {
         CompletionValue completionValue;
         long ledgerId;
         long entryId;
@@ -1393,7 +1394,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         }
 
         @Override
-        public void run() {
+        public void safeRun() {
             completionValue.handleV2Response(ledgerId, entryId, status, response);
             response.release();
             response.recycle();
@@ -1483,9 +1484,9 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
             }
         } else {
             long orderingKey = completionValue.ledgerId;
-            executor.executeOrdered(orderingKey, new Runnable() {
+            executor.executeOrdered(orderingKey, new SafeRunnable() {
                 @Override
-                public void run() {
+                public void safeRun() {
                     completionValue.restoreMdcContext();
                     completionValue.handleV3Response(response);
                 }
@@ -1493,8 +1494,8 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
                 @Override
                 public String toString() {
                     return String.format("HandleResponse(Txn=%d, Type=%s, Entry=(%d, %d))",
-                            header.getTxnId(), header.getOperation(),
-                            completionValue.ledgerId, completionValue.entryId);
+                                         header.getTxnId(), header.getOperation(),
+                                         completionValue.ledgerId, completionValue.entryId);
                 }
             });
         }

@@ -520,6 +520,10 @@ public class OrderedExecutor implements ExecutorService {
      * @param orderingKey
      * @param r
      */
+    public void executeOrdered(Object orderingKey, SafeRunnable r) {
+        chooseThread(orderingKey).execute(r);
+    }
+
     public void executeOrdered(Object orderingKey, Runnable r) {
         chooseThread(orderingKey).execute(r);
     }
@@ -529,6 +533,9 @@ public class OrderedExecutor implements ExecutorService {
      * @param orderingKey
      * @param r
      */
+    public void executeOrdered(long orderingKey, SafeRunnable r) {
+        chooseThread(orderingKey).execute(r);
+    }
     public void executeOrdered(long orderingKey, Runnable r) {
         chooseThread(orderingKey).execute(r);
     }
@@ -538,6 +545,9 @@ public class OrderedExecutor implements ExecutorService {
      * @param orderingKey
      * @param r
      */
+    public void executeOrdered(int orderingKey, SafeRunnable r) {
+        chooseThread(orderingKey).execute(r);
+    }
     public void executeOrdered(int orderingKey, Runnable r) {
         chooseThread(orderingKey).execute(r);
     }
