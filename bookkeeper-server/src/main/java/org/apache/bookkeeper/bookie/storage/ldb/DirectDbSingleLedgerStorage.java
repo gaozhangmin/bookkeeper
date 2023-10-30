@@ -160,6 +160,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                                        long readCacheSize, int readAheadCacheBatchSize,
                                        long readAheadCacheBatchBytesSize) throws IOException {
         super(THREAD_NAME + "-" + conf.getBookiePort());
+        this.setPriority(Thread.MAX_PRIORITY);
         checkArgument(ledgerDirsManager.getAllLedgerDirs().size() == 1,
                 "Db implementation only allows for one storage dir");
         checkArgument(coldLedgerDirsManager != null,
@@ -1423,7 +1424,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         int numEntriesToFlush = 0;
 
         forceWriteThread.start();
-        Stopwatch flushWatcher = Stopwatch.createUnstarted();
         long batchSize = 0;
         KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
         try {
@@ -1668,6 +1668,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
+            this.setPriority(Thread.MAX_PRIORITY);
             ThreadRegistry.register(super.getName(), 0);
 
             if (conf.isBusyWaitEnabled()) {
