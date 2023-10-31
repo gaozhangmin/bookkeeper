@@ -71,6 +71,7 @@ public class EntryLoggerAllocator {
     final ByteBuf logfileHeader = Unpooled.buffer(DefaultEntryLogger.LOGFILE_HEADER_SIZE);
     private Map<String, Long> writingLogIds = new ConcurrentHashMap<>();
     private long writingCompactingLogId = -1;
+    private boolean stopped = false;
 
     EntryLoggerAllocator(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager,
                          DefaultEntryLogger.RecentEntryLogsStatus recentlyCreatedEntryLogsStatus, long logId,
@@ -254,6 +255,7 @@ public class EntryLoggerAllocator {
      * Stop the allocator.
      */
     void stop() {
+        if (stopped) return;
         // wait until the preallocation finished.
         allocatorExecutor.execute(this::closePreAllocateLog);
         allocatorExecutor.shutdown();
@@ -266,6 +268,7 @@ public class EntryLoggerAllocator {
             Thread.currentThread().interrupt();
         }
         allocatorExecutor.shutdownNow();
+        stopped = true;
         log.info("Stopped entry logger preallocator.");
     }
 

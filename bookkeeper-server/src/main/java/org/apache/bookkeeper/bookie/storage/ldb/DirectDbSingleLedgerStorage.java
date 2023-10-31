@@ -63,6 +63,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -358,11 +359,11 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 return;
             }
             LOG.info("Shutting down bookie direct ledgerStorage");
-            flush();
             entryLogger.flush();
             gcThread.shutdown();
             forceWriteThread.shutdown();
             coldStorageBackupThread.shutdown();
+            flush();
             cleanupExecutor.shutdown();
             cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS);
             ledgerIndex.close();
@@ -522,20 +523,19 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
             // Write all the pending entries into the entry logger and collect the offset
             // position for each entry
 
-            KeyValueStorage.Batch batch = entryLocationIndex.newBatch();
-            writeCacheBeingFlushed.forEach((ledgerId, entryId, entry) -> {
-                long location = coldEntryLogger.addEntry(ledgerId, entry);
-                entryLocationIndex.addLocation(batch, ledgerId, entryId, location);
-            });
+            List<EntryLocation> offsets = new ArrayList<>();
 
+            writeCacheBeingFlushed.forEach((ledgerId, entryId, entry) -> {
+                long newoffset = coldEntryLogger.addEntry(ledgerId, entry);
+                offsets.add(new EntryLocation(ledgerId, entryId, newoffset));
+            });
             long entryLoggerStart = MathUtils.nowInNano();
             coldEntryLogger.flush();
             dbLedgerStorageStats.getFlushEntryLogStats().registerSuccessfulEvent(
                     MathUtils.elapsedNanos(entryLoggerStart), TimeUnit.NANOSECONDS);
 
             long batchFlushStartTime = MathUtils.nowInNano();
-            batch.flush();
-            batch.close();
+            updateEntriesLocations(offsets);
             dbLedgerStorageStats.getFlushLocationIndexStats().registerSuccessfulEvent(
                     MathUtils.elapsedNanos(batchFlushStartTime), TimeUnit.NANOSECONDS);
             if (LOG.isDebugEnabled()) {

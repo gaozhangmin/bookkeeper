@@ -42,6 +42,8 @@ class EntryLocationIndexStats {
 
     private static final String ENTRIES_COUNT = "entries-count";
     private static final String LOOKUP_ENTRY_LOCATION = "lookup-entry-location";
+    private static final String BLOCK_CACHE_CAPACITY = "block-cache-capacity";
+    private static final String BLOCK_CACHE_USAGE = "block-cache-usage";
 
     @StatsDoc(
         name = ENTRIES_COUNT,
@@ -49,6 +51,18 @@ class EntryLocationIndexStats {
     )
     private final Gauge<Long> entriesCountGauge;
 
+
+    @StatsDoc(
+            name = BLOCK_CACHE_CAPACITY,
+            help = "Rocksdb block cache capacity."
+    )
+    private final Gauge<Long> blockCacheCapacityGauge;
+
+    @StatsDoc(
+            name = BLOCK_CACHE_USAGE,
+            help = "the memory size for the entries residing in block cache"
+    )
+    private final Gauge<Long> blockCacheUsageGauge;
     @StatsDoc(
             name = LOOKUP_ENTRY_LOCATION,
             help = "operation stats of looking up entry location"
@@ -56,7 +70,9 @@ class EntryLocationIndexStats {
     private final OpStatsLogger lookupEntryLocationStats;
 
     EntryLocationIndexStats(StatsLogger statsLogger,
-                            Supplier<Long> entriesCountSupplier) {
+                            Supplier<Long> entriesCountSupplier,
+                            Supplier<Long> blockCacheCapacitySupplier,
+                            Supplier<Long> blockCacheUsageSupplier) {
         entriesCountGauge = new Gauge<Long>() {
             @Override
             public Long getDefaultValue() {
@@ -69,6 +85,30 @@ class EntryLocationIndexStats {
             }
         };
         statsLogger.registerGauge(ENTRIES_COUNT, entriesCountGauge);
+        blockCacheCapacityGauge = new Gauge<Long>() {
+            @Override
+            public Long getDefaultValue() {
+                return 0L;
+            }
+
+            @Override
+            public Long getSample() {
+                return blockCacheCapacitySupplier.get();
+            }
+        };
+        statsLogger.registerGauge(BLOCK_CACHE_CAPACITY, blockCacheCapacityGauge);
+        blockCacheUsageGauge = new Gauge<Long>() {
+            @Override
+            public Long getDefaultValue() {
+                return 0L;
+            }
+
+            @Override
+            public Long getSample() {
+                return blockCacheUsageSupplier.get();
+            }
+        };
+        statsLogger.registerGauge(BLOCK_CACHE_USAGE, blockCacheUsageGauge);
         lookupEntryLocationStats = statsLogger.getOpStatsLogger(LOOKUP_ENTRY_LOCATION);
     }
 

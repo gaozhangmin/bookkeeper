@@ -152,6 +152,10 @@ public interface KeyValueStorage extends Closeable {
      */
     long count() throws IOException;
 
+    long blockCacheCapacity() throws IOException;
+
+    long blockCacheUsage() throws IOException;
+
     /**
      * Iterator interface.
      *

@@ -515,6 +515,24 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
     }
 
     @Override
+    public long blockCacheCapacity() throws IOException {
+        try {
+            return db.getLongProperty("rocksdb.block-cache-capacity");
+        } catch (RocksDBException e) {
+            throw new IOException("Error in getting records count", e);
+        }
+    }
+
+    @Override
+    public long blockCacheUsage() throws IOException {
+        try {
+            return db.getLongProperty("rocksdb.block-cache-usage");
+        } catch (RocksDBException e) {
+            throw new IOException("Error in getting records count", e);
+        }
+    }
+
+    @Override
     public Batch newBatch() {
         return new RocksDBBatch();
     }

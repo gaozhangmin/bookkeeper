@@ -62,7 +62,19 @@ public class EntryLocationIndex implements Closeable {
                 } catch (IOException e) {
                     return -1L;
                 }
-            });
+            }, () -> {
+            try {
+                return locationsDb.blockCacheCapacity();
+            } catch (IOException e) {
+                return -1L;
+            }
+        }, () -> {
+            try {
+                return locationsDb.blockCacheUsage();
+            } catch (IOException e) {
+                return -1L;
+            }
+        });
     }
 
     @Override
