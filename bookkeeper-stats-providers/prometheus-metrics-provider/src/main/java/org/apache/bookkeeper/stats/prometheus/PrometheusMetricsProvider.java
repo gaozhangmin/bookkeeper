@@ -130,6 +130,10 @@ public class PrometheusMetricsProvider implements StatsProvider {
         registerMetrics(Gauge.build("jvm_memory_direct_bytes_used", "-").create().setChild(new Child() {
             @Override
             public double get() {
+                long usedDirectMemory = io.netty.util.internal.PlatformDependent.usedDirectMemory();
+                if (usedDirectMemory != -1L) {
+                    return usedDirectMemory;
+                }
                 return poolMxBeanOp.isPresent() ? poolMxBeanOp.get().getMemoryUsed() : Double.NaN;
             }
         }));

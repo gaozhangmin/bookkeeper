@@ -41,5 +41,7 @@ public enum PoolingPolicy {
      * fragmentation in the allocator and that threads will keep a portion of
      * memory as thread-local to avoid contention when possible.
      */
-    PooledDirect
+    PooledDirect,
+
+    UnPooledDirect
 }

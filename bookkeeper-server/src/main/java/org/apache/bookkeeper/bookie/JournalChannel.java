@@ -30,7 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.util.PageCacheUtil;
+import org.apache.bookkeeper.util.NativeIO;
 import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -242,7 +242,7 @@ class JournalChannel implements Closeable {
             }
         }
         if (fRemoveFromPageCache) {
-            this.fd = PageCacheUtil.getSysFileDescriptor(channel.getFD());
+            this.fd = NativeIO.getSysFileDescriptor(channel.getFD());
         } else {
             this.fd = -1;
         }
@@ -300,7 +300,7 @@ class JournalChannel implements Closeable {
         if (fRemoveFromPageCache) {
             long newDropPos = newForceWritePosition - cacheDropLagBytes;
             if (lastDropPosition < newDropPos) {
-                PageCacheUtil.bestEffortRemoveFromPageCache(fd, lastDropPosition, newDropPos - lastDropPosition);
+                NativeIO.bestEffortRemoveFromPageCache(fd, lastDropPosition, newDropPos - lastDropPosition);
             }
             this.lastDropPosition = newDropPos;
         }
