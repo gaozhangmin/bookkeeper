@@ -21,7 +21,6 @@
 
 package org.apache.bookkeeper.bookie;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.util.BookKeeperConstants.METADATA_CACHE;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -30,26 +29,15 @@ import com.google.common.util.concurrent.RateLimiter;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
-import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
-import org.apache.bookkeeper.bookie.stats.ColdStorageArchiveStats;
-import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
-import org.apache.bookkeeper.bookie.storage.EntryLogger;
-import org.apache.bookkeeper.bookie.storage.ldb.DirectDbSingleLedgerStorage;
-import org.apache.bookkeeper.bookie.storage.ldb.PersistentEntryLogMetadataMap;
-import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.meta.LedgerManager;
-import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.MathUtils;
-import org.apache.commons.lang3.mutable.MutableBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.*;
-import java.nio.channels.FileChannel;
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -57,6 +45,23 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.StampedLock;
+
+import org.apache.bookkeeper.bookie.BookieException.EntryLogMetadataMapException;
+import org.apache.bookkeeper.bookie.stats.ColdStorageArchiveStats;
+import org.apache.bookkeeper.bookie.storage.EntryLogScanner;
+import org.apache.bookkeeper.bookie.storage.EntryLogger;
+import org.apache.bookkeeper.bookie.storage.ldb.DirectDbSingleLedgerStorage;
+import org.apache.bookkeeper.bookie.storage.ldb.EntryLocationIndex;
+import org.apache.bookkeeper.bookie.storage.ldb.PersistentEntryLogMetadataMap;
+import org.apache.bookkeeper.bookie.storage.ldb.WriteCache;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
+import org.apache.commons.lang3.mutable.MutableBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This is the garbage collector thread that runs in the background to
@@ -100,9 +105,13 @@ public class ColdStorageArchiveThread implements Runnable {
 
     final AtomicBoolean forceArchive = new AtomicBoolean(false);
     private final ByteBufAllocator allocator;
-    private final ByteBuf readBuffer;
     private final AtomicLong archivedMaxLogId = new AtomicLong(-1L);
     final ArchiveScannerFactory scannerFactory = new ArchiveScannerFactory();
+    protected volatile WriteCache writeCache;
+    protected volatile WriteCache writeCacheForDowngrade;
+    private final EntryLocationIndex entryLocationIndex;
+    protected final ReentrantLock flushMutex = new ReentrantLock();
+    private final StampedLock writeCacheRotationLock = new StampedLock();
 
     /**
      * Create a garbage collector thread.
@@ -117,12 +126,14 @@ public class ColdStorageArchiveThread implements Runnable {
                                     final DirectDbSingleLedgerStorage ledgerStorage,
                                     EntryLogger entryLogger,
                                     EntryLogger coldEntryLogger, StatsLogger statsLogger,
-                                    ByteBufAllocator allocator) throws IOException {
+                                    ByteBufAllocator allocator,
+                                    WriteCache writeCache,
+                                    EntryLocationIndex entryLocationIndex) throws IOException {
         this.gcExecutor = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("ColdStorageArchiveThread"));
+        this.writeCache = writeCache;
+        this.entryLocationIndex = entryLocationIndex;
         this.conf = conf;
         this.allocator = allocator;
-        this.readBuffer = allocator.buffer(conf.getArchiveReadBufferSize());
-
         this.ledgerDirsManager = ledgerDirsManager;
         this.entryLogger = entryLogger;
         this.entryLogMetaMap = createEntryLogMetadataMap();
@@ -144,6 +155,16 @@ public class ColdStorageArchiveThread implements Runnable {
         if (archiveRateByBytes > 0) {
             this.throttler = new Throttler(archiveRateByBytes);
         }
+    }
+
+    public void setWriteCacheForDowngrade() {
+        this.writeCacheForDowngrade = new WriteCache(allocator,
+                conf.getEntryLogSizeLimit() / conf.getColdLedgerDirs().length);
+    }
+
+    public void destoryWriteCacheForDowngrade() {
+        this.writeCacheForDowngrade.close();
+        this.writeCacheForDowngrade = null;
     }
 
     private EntryLogMetadataMap createEntryLogMetadataMap() throws IOException {
@@ -283,19 +304,19 @@ public class ColdStorageArchiveThread implements Runnable {
                 LOG.info("ArchiveToColdStorage: Metadata for entry log {} already deleted", entryLogId);
                 return;
             }
-            if (!forceArchive.get() && currentTime - meta.creationTime <= conf.getDiskCacheRetentionTime()) {
+            if (!forceArchive.get()
+                    && currentTime - meta.getFlushTimestamp() <= conf.getDiskCacheRetentionTime()) {
                 totalEntryLogSizeAcc.getAndAdd(meta.getRemainingSize());
                 return;
             }
             try {
-                if (ledgerStorage.downgrading(-1L)) {
-                    archiveWithRateLimit(entryLogId);
-                } else {
-                    entryLogger.scanEntryLog(meta.getEntryLogId(), scannerFactory.newScanner(meta));
-                    ledgerStorage.flushArchivedEntries();
-                }
+
+                entryLogger.scanEntryLog(meta.getEntryLogId(), scannerFactory.newScanner(meta));
+                triggerFlush();
+
                 this.removeEntryLogByArchive(entryLogId);
                 stats.getReclaimedDiskCacheSpaceViaArchive().addCount(meta.getTotalSize());
+
                 if (entryLogId > archivedMaxLogId.get()) {
                     archivedMaxLogId.set(entryLogId);
                 }
@@ -352,13 +373,14 @@ public class ColdStorageArchiveThread implements Runnable {
                     // We can remove this entry log file now.
                     this.removeEmptyEntryLog(entryLogId);
                 } else {
-                    BasicFileAttributes attributes = Files.readAttributes(
-                            new File(ledgerDir, Long.toHexString(entryLogId) + ".log").toPath(),
-                            BasicFileAttributes.class);
-                    long creationTime = attributes.creationTime().toMillis();
-                    entryLogMeta.setCreationTime(creationTime);
+                    if (entryLogMeta.getFlushTimestamp() == -1L) {
+                        BasicFileAttributes attributes = Files.readAttributes(
+                                Path.of(ledgerDir.getPath(), Long.toHexString(entryLogId) + LOG_FILE_SUFFIX),
+                                BasicFileAttributes.class);
+                        long creationTime = attributes.lastModifiedTime().toMillis();
+                        entryLogMeta.setFlushTimestamp(creationTime);
+                    }
                     entryLogMetaMap.put(entryLogId, entryLogMeta);
-
                 }
             } catch (IOException e) {
                 LOG.warn("Premature exception when processing " + entryLogId
@@ -386,38 +408,94 @@ public class ColdStorageArchiveThread implements Runnable {
         modified.getValue();
     }
 
-    private void archiveWithRateLimit(long entryLogId) {
-        try {
-            File coldEntryFile = new File(coldLedgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-            File entrylogFile = new File(ledgerDir, Long.toHexString(entryLogId) + LOG_FILE_SUFFIX);
-            FileChannel writeChannel = new RandomAccessFile(coldEntryFile, "rw").getChannel();
-            FileChannel readChannel = new RandomAccessFile(entrylogFile, "r").getChannel();
-            BufferedChannel bufferedWriteChannel = new BufferedChannel(
-                    allocator, writeChannel, conf.getArchiveWriteBufferSize(), conf.getFlushIntervalInBytes());
-            BufferedReadChannel bufferedReadChannel =
-                    new BufferedReadChannel(readChannel, conf.getArchiveReadBufferSize());
+    public void addEntry(ByteBuf entry) throws IOException {
+        long startTime = MathUtils.nowInNano();
+        long ledgerId = entry.getLong(entry.readerIndex());
+        long entryId = entry.getLong(entry.readerIndex() + 8);
 
-            long pos = 0;
-            int bytesRead;
-            while (pos < bufferedReadChannel.size()) {
-                if (throttler != null) {
-                    throttler.acquire(conf.getArchiveReadBufferSize());
-                }
-                bytesRead = bufferedReadChannel.read(readBuffer, pos);
-                bufferedWriteChannel.write(readBuffer);
-                readBuffer.clear();
-                pos += bytesRead;
-                stats.getArchivedEntryLogSize().addCount(bytesRead);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Add archived entry. {}@{}", ledgerId, entryId);
+        }
+        if (writeCacheForDowngrade != null) {
+            boolean inserted = writeCacheForDowngrade.put(ledgerId, entryId, entry);
+            if (!inserted) {
+                triggerFlush();
+                writeCacheForDowngrade.put(ledgerId, entryId, entry);
             }
-            bufferedWriteChannel.flushAndForceWrite(true);
-            bufferedWriteChannel.close();
-            readChannel.close();
-        } catch (IOException ex) {
-            LOG.warn("EntryLog={}-{} is not found during archiving process",
-                    entryLogId, Long.toHexString(entryLogId), ex);
-        } catch (Exception unexpected) {
-            LOG.error("Unexpected exception while archiving entryLog={}-{}",
-                    entryLogId, Long.toHexString(entryLogId), unexpected);
+        } else {
+            long stamp = writeCacheRotationLock.tryOptimisticRead();
+            boolean inserted = writeCache.put(ledgerId, entryId, entry);
+            if (!writeCacheRotationLock.validate(stamp)) {
+                // The write cache was rotated while we were inserting. We need to acquire the proper read lock and repeat
+                // the operation because we might have inserted in a write cache that was already being flushed and cleared,
+                // without being sure about this last entry being flushed or not.
+                stamp = writeCacheRotationLock.readLock();
+                try {
+                    inserted = writeCache.put(ledgerId, entryId, entry);
+                } finally {
+                    writeCacheRotationLock.unlockRead(stamp);
+                }
+            }
+            if (!inserted) {
+                triggerFlush();
+                stamp = writeCacheRotationLock.readLock();
+                try {
+                    writeCache.put(ledgerId, entryId, entry);
+                } finally {
+                    writeCacheRotationLock.unlockRead(stamp);
+                }
+            }
+        }
+        stats.getArchiveEntryStats().registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
+
+    }
+
+    public void triggerFlush() throws IOException {
+        flushMutex.lock();
+        long startTime = MathUtils.nowInNano();
+        try {
+            List<EntryLocation> offsets = new ArrayList<>();
+            long sizeToFlush;
+            if (writeCacheForDowngrade != null) {
+                sizeToFlush = writeCacheForDowngrade.size();
+                writeCacheForDowngrade.forEach((lId, eId, cacheEntry) -> {
+                    long newoffset = coldEntryLogger.addEntry(lId, cacheEntry);
+                    offsets.add(new EntryLocation(lId, eId, newoffset));
+                });
+                writeCacheForDowngrade.clear();
+            } else {
+                sizeToFlush = writeCache.size();
+                writeCache.forEach((lId, eId, cacheEntry) -> {
+                    long newoffset = coldEntryLogger.addEntry(lId, cacheEntry);
+                    offsets.add(new EntryLocation(lId, eId, newoffset));
+                });
+                writeCache.clear();
+            }
+            long entryLoggerStart = MathUtils.nowInNano();
+            coldEntryLogger.flush();
+            stats.getFlushEntryLogStats().registerSuccessfulEvent(MathUtils.elapsedNanos(entryLoggerStart), TimeUnit.NANOSECONDS);
+
+            long batchFlushStartTime = MathUtils.nowInNano();
+            entryLocationIndex.updateLocations(offsets);
+            stats.getFlushEntryLogStats().registerSuccessfulEvent(MathUtils.elapsedNanos(batchFlushStartTime), TimeUnit.NANOSECONDS);
+
+
+            double flushTimeSeconds = MathUtils.elapsedNanos(startTime) / (double) TimeUnit.SECONDS.toNanos(1);
+            double flushThroughput = sizeToFlush  / flushTimeSeconds;
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Flushing done time {} s -- Written {} MB/s", flushTimeSeconds, flushThroughput);
+            }
+            stats.getFlushStats().registerSuccessfulEvent(MathUtils.elapsedNanos(startTime),
+                    TimeUnit.NANOSECONDS);
+
+            stats.getFlushSizeStats().registerSuccessfulValue(sizeToFlush);
+        } catch (IOException exception) {
+            stats.getFlushStats().registerFailedEvent(MathUtils.elapsedNanos(startTime),
+                    TimeUnit.NANOSECONDS);
+            throw exception;
+        } finally {
+            flushMutex.unlock();
         }
     }
 
@@ -426,7 +504,6 @@ public class ColdStorageArchiveThread implements Runnable {
         LOG.info("Shutting down ColdLedgerStorageArchiver");
         // Interrupt GC executor thread
         gcExecutor.shutdownNow();
-        ReferenceCountUtil.release(readBuffer);
         try {
             entryLogMetaMap.close();
         } catch (Exception e) {
@@ -453,30 +530,21 @@ public class ColdStorageArchiveThread implements Runnable {
             return new EntryLogScanner() {
                 @Override
                 public boolean accept(long ledgerId) {
-                    return meta.containsLedger(ledgerId);
+                    try {
+                        return meta.containsLedger(ledgerId);
+                    } catch (Exception e) {
+                        return false;
+                    }
                 }
 
                 @Override
                 public void process(final long ledgerId, long offset, ByteBuf entry) throws IOException {
-                    while (true) {
-                        int bytesRead = entry.readableBytes();
-                        if (throttler != null) {
-                            throttler.acquire(bytesRead);
-                        }
-                        try {
-                            ledgerStorage.addEntry(entry);
-                            stats.getArchivedEntryLogSize().addCount(bytesRead);
-                            break;
-                        } catch (BookieException be) {
-                            // Wait some time and try again
-                            try {
-                                Thread.sleep(1);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                throw new IOException("Interrupted when archiving entry " + ledgerId);
-                            }
-                        }
+                    int bytesRead = entry.readableBytes();
+                    if (throttler != null) {
+                        throttler.acquire(bytesRead);
                     }
+                    addEntry(entry);
+                    stats.getArchivedEntryLogSize().addCount(bytesRead);
                 }
             };
         }

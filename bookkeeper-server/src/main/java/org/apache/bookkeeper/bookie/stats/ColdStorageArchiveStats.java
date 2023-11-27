@@ -40,12 +40,45 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 )
 @Getter
 public class ColdStorageArchiveStats {
+    private static final String ARCHIVE_ENTRY = "archive-entry";
+    private static final String FLUSH_ARCHIVED_ENTRYLOG = "flush-archived-entrylog";
+    private static final String FLUSH_ARCHIVED_LOCATIONS_INDEX = "flush-archived-locations-index";
+    private static final String FLUSH_ARCHIVE = "flush-archive";
+    private static final String FLUSH_ARCHIVE_SIZE = "flush-archive-size";
+
+
     final StatsLogger statsLogger;
     @StatsDoc(
         name = RECLAIMED_DISK_CACHE_SPACE_BYTES,
         help = "Number of disk cache space bytes reclaimed via archiving old entry log files"
     )
     private final Counter reclaimedDiskCacheSpaceViaArchive;
+    @StatsDoc(
+            name = ARCHIVE_ENTRY,
+            help = "operation stats of archiv entries",
+            parent = BOOKIE_ADD_ENTRY
+    )
+    private final OpStatsLogger archiveEntryStats;
+    @StatsDoc(
+            name = FLUSH_ARCHIVED_ENTRYLOG,
+            help = "operation stats of flushing to the current entry log file"
+    )
+    private final OpStatsLogger flushEntryLogStats;
+    @StatsDoc(
+            name = FLUSH_ARCHIVED_LOCATIONS_INDEX,
+            help = "operation stats of flushing to the locations index"
+    )
+    private final OpStatsLogger flushLocationIndexStats;
+    @StatsDoc(
+            name = FLUSH_ARCHIVE,
+            help = "operation stats of flushing write cache to entry log files"
+    )
+    private final OpStatsLogger flushStats;
+    @StatsDoc(
+            name = FLUSH_ARCHIVE_SIZE,
+            help = "the distribution of number of bytes flushed from write cache to entry log files"
+    )
+    private final OpStatsLogger flushSizeStats;
 
     @StatsDoc(
             name = ARCHIVED_ENTRY_LOG_SIZE_BYTES,
@@ -80,9 +113,15 @@ public class ColdStorageArchiveStats {
                                    Supplier<Long> activeEntryLogSpaceBytesSupplier) {
         this.statsLogger = statsLogger;
         this.reclaimedDiskCacheSpaceViaArchive = statsLogger.getCounter(RECLAIMED_DISK_CACHE_SPACE_BYTES);
+        this.archiveEntryStats = statsLogger.getThreadScopedOpStatsLogger(ARCHIVE_ENTRY);
         this.archivedEntryLogSize = statsLogger.getCounter(ARCHIVED_ENTRY_LOG_SIZE_BYTES);
         this.archiveThreadRuntime = statsLogger.getOpStatsLogger(ARCHIVE_THREAD_RUNTIME);
         this.extractionRunTime = statsLogger.getOpStatsLogger(EXTRACT_METADATA_RUNTIME);
+        this.flushEntryLogStats = statsLogger.getOpStatsLogger(FLUSH_ARCHIVED_ENTRYLOG);
+        this.flushLocationIndexStats = statsLogger.getOpStatsLogger(FLUSH_ARCHIVED_LOCATIONS_INDEX);
+        this.flushStats = statsLogger.getOpStatsLogger(FLUSH_ARCHIVE);
+        this.flushSizeStats = statsLogger.getOpStatsLogger(FLUSH_ARCHIVE_SIZE);
+
 
         this.activeEntryLogCountGauge = new Gauge<Integer>() {
             @Override

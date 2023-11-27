@@ -87,7 +87,11 @@ public class EntryLogCompactor extends AbstractLogCompactor {
             return new EntryLogScanner() {
                 @Override
                 public boolean accept(long ledgerId) {
-                    return meta.containsLedger(ledgerId);
+                    try {
+                        return meta.containsLedger(ledgerId);
+                    } catch (Exception e) {
+                        return false;
+                    }
                 }
 
                 @Override

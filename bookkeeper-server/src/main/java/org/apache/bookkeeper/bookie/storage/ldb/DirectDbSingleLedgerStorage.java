@@ -221,7 +221,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         this.coldEntryLogger = coldEntryLogger;
         coldStorageBackupThread = new ColdStorageArchiveThread(conf, ledgerDirsManager,
                 coldLedgerDirsManager, this, entryLogger, coldEntryLogger, ledgerIndexDirStatsLogger,
-                allocator);
+                allocator, writeCache, entryLocationIndex);
         coldStorageBackupThread.addListener(this.cachedEntryLogIdsCache::remove);
         gcThread = new GarbageCollectorThread(conf, ledgerManager, coldLedgerDirsManager, this,
                 coldEntryLogger, ledgerIndexDirStatsLogger);
@@ -359,11 +359,13 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 return;
             }
             LOG.info("Shutting down bookie direct ledgerStorage");
+            flush();
+            coldEntryLogger.flush();
             entryLogger.flush();
+            ledgerIndex.flush();
             gcThread.shutdown();
             forceWriteThread.shutdown();
             coldStorageBackupThread.shutdown();
-            flush();
             cleanupExecutor.shutdown();
             cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS);
             ledgerIndex.close();
@@ -493,97 +495,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         }
     }
 
-
-    public void flushArchivedEntries() throws IOException {
-        // Only a single flush operation can happen at a time
-        flushMutex.lock();
-        long startTime = -1;
-        try {
-            startTime = MathUtils.nowInNano();
-        } catch (Throwable e) {
-            // Fix spotbugs warning. Should never happen
-            flushMutex.unlock();
-            throw new IOException(e);
-        }
-
-        try {
-            if (writeCache.isEmpty()) {
-                return;
-            }
-            // Swap the write cache so that writes can continue to happen while the flush is
-            // ongoing
-            swapWriteCache();
-
-            long sizeToFlush = writeCacheBeingFlushed.size();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Flushing entries. count: {} -- size {} Mb", writeCacheBeingFlushed.count(),
-                        sizeToFlush / 1024.0 / 1024);
-            }
-
-            // Write all the pending entries into the entry logger and collect the offset
-            // position for each entry
-
-            List<EntryLocation> offsets = new ArrayList<>();
-
-            writeCacheBeingFlushed.forEach((ledgerId, entryId, entry) -> {
-                long newoffset = coldEntryLogger.addEntry(ledgerId, entry);
-                offsets.add(new EntryLocation(ledgerId, entryId, newoffset));
-            });
-            long entryLoggerStart = MathUtils.nowInNano();
-            coldEntryLogger.flush();
-            dbLedgerStorageStats.getFlushEntryLogStats().registerSuccessfulEvent(
-                    MathUtils.elapsedNanos(entryLoggerStart), TimeUnit.NANOSECONDS);
-
-            long batchFlushStartTime = MathUtils.nowInNano();
-            updateEntriesLocations(offsets);
-            dbLedgerStorageStats.getFlushLocationIndexStats().registerSuccessfulEvent(
-                    MathUtils.elapsedNanos(batchFlushStartTime), TimeUnit.NANOSECONDS);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("DB batch flushed time : {} s",
-                        MathUtils.elapsedNanos(batchFlushStartTime) / (double) TimeUnit.SECONDS.toNanos(1));
-            }
-            // Discard all the entry from the write cache, since they're now persisted
-            writeCacheBeingFlushed.clear();
-
-            double flushTimeSeconds = MathUtils.elapsedNanos(startTime) / (double) TimeUnit.SECONDS.toNanos(1);
-            double flushThroughput = sizeToFlush / 1024.0 / 1024.0 / flushTimeSeconds;
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Flushing done time {} s -- Written {} MB/s", flushTimeSeconds, flushThroughput);
-            }
-            dbLedgerStorageStats.getFlushStats().registerSuccessfulEvent(MathUtils.elapsedNanos(startTime),
-                    TimeUnit.NANOSECONDS);
-
-            dbLedgerStorageStats.getFlushSizeStats().registerSuccessfulValue(sizeToFlush);
-        } catch (IOException e) {
-            dbLedgerStorageStats.getFlushStats().registerFailedEvent(MathUtils.elapsedNanos(startTime),
-                    TimeUnit.NANOSECONDS);
-            // Leave IOExecption as it is
-            throw e;
-        } finally {
-            try {
-                cleanupExecutor.execute(() -> {
-                    // There can only be one single cleanup task running because the cleanupExecutor
-                    // is single-threaded
-                    try {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Removing deleted ledgers from db indexes");
-                        }
-
-                        entryLocationIndex.removeOffsetFromDeletedLedgers();
-                        ledgerIndex.removeDeletedLedgers();
-                    } catch (Throwable t) {
-                        LOG.warn("Failed to cleanup db indexes", t);
-                    }
-                });
-
-                isFlushOngoing.set(false);
-            } finally {
-                flushMutex.unlock();
-            }
-        }
-    }
-
     @Override
     public void checkpoint(CheckpointSource.Checkpoint checkpoint) throws IOException {
         CheckpointSource.Checkpoint thisCheckpoint = checkpointSource.newCheckpoint();
@@ -603,7 +514,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         }
 
         try {
-            if (writeCache.isEmpty()) {
+            if (writeCache.isEmpty() || !downgrading.get()) {
                 return;
             }
             // Swap the write cache so that writes can continue to happen while the flush is
@@ -714,14 +625,6 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
 
     @Override
     public void flush() throws IOException {
-        if (downgrading.get()) {
-            flushWithCheckpoint();
-        } else {
-            flushArchivedEntries();
-        }
-    }
-
-    public void flushWithCheckpoint() throws IOException {
         CheckpointSource.Checkpoint cp = checkpointSource.newCheckpoint();
         checkpoint(cp);
         if (singleLedgerDirs) {
@@ -892,6 +795,7 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         && downgrading.compareAndSet(false, true)) {
                     LOG.info("Disk {} is almost full. Downgrade to coldStorage", disk);
                     try {
+                        coldStorageBackupThread.setWriteCacheForDowngrade();
                         entryLogger.flush();
                         ledgerIndex.flush();
                     } catch (IOException e) {
@@ -906,7 +810,8 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                         && downgrading.compareAndSet(true, false)) {
                     LOG.info("Disk {} is UnderWarnThreshold. Upgrade to disk cache", disk);
                     try {
-                        flushWithCheckpoint();
+                        coldStorageBackupThread.destoryWriteCacheForDowngrade();
+                        flush();
                     } catch (IOException e) {
                         LOG.error("Error flushing coldEntryLogger during disabling downgradeToColdStorage", e);
                     }
@@ -1661,14 +1566,14 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
         Thread threadToNotifyOnEx;
 
         public ForceWriteThread(Thread threadToNotifyOnEx) {
-            super("ForceWriteThread");
+            super("DirectDbForceWriteThread");
+            this.setPriority(Thread.MAX_PRIORITY);
             this.threadToNotifyOnEx = threadToNotifyOnEx;
         }
 
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
-            this.setPriority(Thread.MAX_PRIORITY);
             ThreadRegistry.register(super.getName(), 0);
 
             if (conf.isBusyWaitEnabled()) {

@@ -39,7 +39,7 @@ public class EntryLogMetadata {
     protected long remainingSize;
     protected final ConcurrentLongLongHashMap ledgersMap;
     private static final short DEFAULT_SERIALIZATION_VERSION = 0;
-    protected long creationTime;
+    protected long flushTimestamp;
 
     protected EntryLogMetadata() {
         ledgersMap = ConcurrentLongLongHashMap.newBuilder()
@@ -48,8 +48,8 @@ public class EntryLogMetadata {
                 .build();
     }
 
-    public void setCreationTime(long creationTime) {
-        this.creationTime = creationTime;
+    public void setFlushTimestamp(long flushTimestamp) {
+        this.flushTimestamp = flushTimestamp;
     }
 
     public EntryLogMetadata(long logId) {
@@ -82,6 +82,10 @@ public class EntryLogMetadata {
 
     public long getEntryLogId() {
         return entryLogId;
+    }
+
+    public long getFlushTimestamp() {
+        return flushTimestamp;
     }
 
     public long getTotalSize() {

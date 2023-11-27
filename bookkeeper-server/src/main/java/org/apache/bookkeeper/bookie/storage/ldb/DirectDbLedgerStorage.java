@@ -81,13 +81,13 @@ public class DirectDbLedgerStorage implements LedgerStorage {
     private static final String MAX_READAHEAD_BATCH_SIZE = "readahead-max-batch-size";
     public static final String WRITE_CACHE_MAX_SIZE_MB = "dbStorage_writeCacheMaxSizeMb";
     public static final int MB = 1024 * 1024;
-    private static final long DEFAULT_READ_CACHE_MAX_SIZE_MB =
+    public static final long DEFAULT_READ_CACHE_MAX_SIZE_MB =
             (long) (0.25 * PlatformDependent.estimateMaxDirectMemory()) / MB;
-    private static final long DEFAULT_WRITE_CACHE_MAX_SIZE_MB =
+    public static final long DEFAULT_WRITE_CACHE_MAX_SIZE_MB =
             (long) (0.25 * PlatformDependent.estimateMaxDirectMemory()) / MB;
-    private static final int DEFAULT_READ_AHEAD_CACHE_BATCH_SIZE = 100;
+    public static final int DEFAULT_READ_AHEAD_CACHE_BATCH_SIZE = 100;
     // the default value is -1. this feature(limit of read ahead bytes) is disabled
-    private static final int DEFAULT_READ_AHEAD_CACHE_BATCH_BYTES_SIZE = -1;
+    public static final int DEFAULT_READ_AHEAD_CACHE_BATCH_BYTES_SIZE = -1;
     protected static final long STORAGE_FLAGS_KEY = 0L;
 
     protected  ServerConfiguration conf;

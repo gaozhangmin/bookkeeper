@@ -22,11 +22,13 @@
 package org.apache.bookkeeper.bookie;
 
 import static org.apache.bookkeeper.bookie.DefaultEntryLogger.INVALID_LID;
+import static org.apache.bookkeeper.bookie.DefaultEntryLogger.MB;
 import static org.apache.bookkeeper.bookie.DefaultEntryLogger.UNASSIGNED_LEDGERID;
 
 import io.netty.buffer.ByteBuf;
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -37,10 +39,13 @@ import org.apache.bookkeeper.bookie.DefaultEntryLogger.BufferedLogChannel;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.bookkeeper.util.NativeIO;
 
 @Slf4j
 class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
+    private static final long cacheDropLagBytes = 8 * MB;
 
+    private long lastDropPosition = 0L;
     private volatile BufferedLogChannel activeLogChannel;
     private long logIdBeforeFlush = INVALID_LID;
     private final AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);

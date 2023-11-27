@@ -199,9 +199,10 @@ public class DefaultEntryLogger implements EntryLogger {
             super.flush();
 
             // Update the headers with the map offset and count of ledgers
-            ByteBuffer mapInfo = ByteBuffer.allocate(8 + 4);
+            ByteBuffer mapInfo = ByteBuffer.allocate(8 + 4 + 8);
             mapInfo.putLong(ledgerMapOffset);
             mapInfo.putInt(numberOfLedgers);
+            mapInfo.putLong(System.currentTimeMillis());
             mapInfo.flip();
             this.fileChannel.write(mapInfo, LEDGERS_MAP_OFFSET_POSITION);
         }
@@ -226,17 +227,20 @@ public class DefaultEntryLogger implements EntryLogger {
 
     private static final int HEADER_V0 = 0; // Old log file format (no ledgers map index)
     private static final int HEADER_V1 = 1; // Introduced ledger map index
-    static final int HEADER_CURRENT_VERSION = HEADER_V1;
+    private static final int HEADER_V2 = 2; // Introduced entry log file flush timestamp
+    static final int HEADER_CURRENT_VERSION = HEADER_V2;
 
     private static class Header {
         final int version;
         final long ledgersMapOffset;
         final int ledgersCount;
+        final  long flushTimestamp;
 
-        Header(int version, long ledgersMapOffset, int ledgersCount) {
+        Header(int version, long ledgersMapOffset, int ledgersCount, long flushTimestamp) {
             this.version = version;
             this.ledgersMapOffset = ledgersMapOffset;
             this.ledgersCount = ledgersCount;
+            this.flushTimestamp = flushTimestamp;
         }
     }
 
@@ -965,10 +969,16 @@ public class DefaultEntryLogger implements EntryLogger {
             if (headerVersion < HEADER_V0 || headerVersion > HEADER_CURRENT_VERSION) {
                 LOG.info("Unknown entry log header version for log {}: {}", entryLogId, headerVersion);
             }
-
-            long ledgersMapOffset = headers.readLong();
-            int ledgersCount = headers.readInt();
-            return new Header(headerVersion, ledgersMapOffset, ledgersCount);
+            if (headerVersion == HEADER_V2) {
+                long ledgersMapOffset = headers.readLong();
+                int ledgersCount = headers.readInt();
+                long flushTimestamp = headers.readLong();
+                return new Header(headerVersion, ledgersMapOffset, ledgersCount, flushTimestamp);
+            } else {
+                long ledgersMapOffset = headers.readLong();
+                int ledgersCount = headers.readInt();
+                return new Header(headerVersion, ledgersMapOffset, ledgersCount, -1L);
+            }
         } finally {
             ReferenceCountUtil.release(headers);
         }
@@ -1174,6 +1184,7 @@ public class DefaultEntryLogger implements EntryLogger {
         // There can be multiple entries containing the various components of the serialized ledgers map
         long offset = header.ledgersMapOffset;
         EntryLogMetadata meta = new EntryLogMetadata(entryLogId);
+        meta.setFlushTimestamp(header.flushTimestamp);
 
         final int maxMapSize = LEDGERS_MAP_HEADER_SIZE + LEDGERS_MAP_ENTRY_SIZE * LEDGERS_MAP_MAX_BATCH_SIZE;
         ByteBuf ledgersMap = allocator.directBuffer(maxMapSize);

@@ -180,7 +180,7 @@ public class BufferedChannel extends BufferedReadChannel implements Closeable {
      * calls both flush and forceWrite methods if regular flush is enabled.
      *
      * @param forceMetadata
-     *            - If true then this method is required to force changes to
+     *            - If true then thisflushAndForceWrite method is required to force changes to
      *            both the file's content and metadata to be written to storage;
      *            otherwise, it need only force content changes to be written
      * @throws IOException
