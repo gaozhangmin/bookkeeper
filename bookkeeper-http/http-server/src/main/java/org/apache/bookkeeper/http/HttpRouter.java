@@ -94,6 +94,7 @@ public abstract class HttpRouter<Handler> {
         this.endpointHandlers.put(BOOKIE_INFO, handlerFactory.newHandler(HttpServer.ApiType.BOOKIE_INFO));
         this.endpointHandlers.put(SUSPEND_GC_COMPACTION, handlerFactory.newHandler(HttpServer.ApiType.SUSPEND_GC_COMPACTION));
         this.endpointHandlers.put(RESUME_GC_COMPACTION, handlerFactory.newHandler(HttpServer.ApiType.RESUME_GC_COMPACTION));
+        this.endpointHandlers.put(CLUSTER_INFO, handlerFactory.newHandler(HttpServer.ApiType.CLUSTER_INFO));
 
         // autorecovery
         this.endpointHandlers.put(AUTORECOVERY_STATUS, handlerFactory

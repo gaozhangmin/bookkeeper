@@ -18,6 +18,8 @@ package org.apache.bookkeeper.stats;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.util.List;
+
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.lang.StringUtils;
 

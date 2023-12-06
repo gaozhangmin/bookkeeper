@@ -54,7 +54,7 @@ public class ByteBufAllocatorImpl extends AbstractByteBufAllocator implements By
             PoolingPolicy poolingPolicy, int poolingConcurrency, OutOfMemoryPolicy outOfMemoryPolicy,
             Consumer<OutOfMemoryError> outOfMemoryListener,
             LeakDetectionPolicy leakDetectionPolicy) {
-        super(poolingPolicy == PoolingPolicy.PooledDirect /* preferDirect */);
+        super(poolingPolicy == PoolingPolicy.PooledDirect || poolingPolicy == PoolingPolicy.UnPooledDirect /* preferDirect */);
 
         this.poolingPolicy = poolingPolicy;
         this.outOfMemoryPolicy = outOfMemoryPolicy;

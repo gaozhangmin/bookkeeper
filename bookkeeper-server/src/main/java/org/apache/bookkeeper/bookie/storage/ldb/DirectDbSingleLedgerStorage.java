@@ -296,6 +296,14 @@ public class DirectDbSingleLedgerStorage extends BookieCriticalThread implements
                 minorCompactionThreshold, majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
     }
 
+    public ReentrantLock getFlushMutex() {
+        return flushMutex;
+    }
+
+    public StampedLock getWriteCacheRotationLock() {
+        return writeCacheRotationLock;
+    }
+
     @Override
     public boolean isInForceGC() {
         return gcThread.isInForceGC();

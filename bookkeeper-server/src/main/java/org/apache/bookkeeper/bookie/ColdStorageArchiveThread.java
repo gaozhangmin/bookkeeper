@@ -162,7 +162,8 @@ public class ColdStorageArchiveThread implements Runnable {
                 conf.getEntryLogSizeLimit() / conf.getColdLedgerDirs().length);
     }
 
-    public void destoryWriteCacheForDowngrade() {
+    public void destoryWriteCacheForDowngrade() throws IOException {
+        triggerFlush();
         this.writeCacheForDowngrade.close();
         this.writeCacheForDowngrade = null;
     }
@@ -423,31 +424,30 @@ public class ColdStorageArchiveThread implements Runnable {
                 writeCacheForDowngrade.put(ledgerId, entryId, entry);
             }
         } else {
-            long stamp = writeCacheRotationLock.tryOptimisticRead();
+            long stamp = this.ledgerStorage.getWriteCacheRotationLock().tryOptimisticRead();
             boolean inserted = writeCache.put(ledgerId, entryId, entry);
-            if (!writeCacheRotationLock.validate(stamp)) {
+            if (!this.ledgerStorage.getWriteCacheRotationLock().validate(stamp)) {
                 // The write cache was rotated while we were inserting. We need to acquire the proper read lock and repeat
                 // the operation because we might have inserted in a write cache that was already being flushed and cleared,
                 // without being sure about this last entry being flushed or not.
-                stamp = writeCacheRotationLock.readLock();
+                stamp = this.ledgerStorage.getWriteCacheRotationLock().readLock();
                 try {
                     inserted = writeCache.put(ledgerId, entryId, entry);
                 } finally {
-                    writeCacheRotationLock.unlockRead(stamp);
+                    this.ledgerStorage.getWriteCacheRotationLock().unlockRead(stamp);
                 }
             }
             if (!inserted) {
                 triggerFlush();
-                stamp = writeCacheRotationLock.readLock();
+                stamp = this.ledgerStorage.getWriteCacheRotationLock().readLock();
                 try {
                     writeCache.put(ledgerId, entryId, entry);
                 } finally {
-                    writeCacheRotationLock.unlockRead(stamp);
+                    this.ledgerStorage.getWriteCacheRotationLock().unlockRead(stamp);
                 }
             }
         }
         stats.getArchiveEntryStats().registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
-
     }
 
     public void triggerFlush() throws IOException {
@@ -464,6 +464,7 @@ public class ColdStorageArchiveThread implements Runnable {
                 });
                 writeCacheForDowngrade.clear();
             } else {
+                this.ledgerStorage.getFlushMutex().lock();
                 sizeToFlush = writeCache.size();
                 writeCache.forEach((lId, eId, cacheEntry) -> {
                     long newoffset = coldEntryLogger.addEntry(lId, cacheEntry);
@@ -495,6 +496,7 @@ public class ColdStorageArchiveThread implements Runnable {
                     TimeUnit.NANOSECONDS);
             throw exception;
         } finally {
+            this.ledgerStorage.getFlushMutex().unlock();
             flushMutex.unlock();
         }
     }
@@ -506,6 +508,9 @@ public class ColdStorageArchiveThread implements Runnable {
         gcExecutor.shutdownNow();
         try {
             entryLogMetaMap.close();
+            if (writeCacheForDowngrade != null) {
+                writeCacheForDowngrade.close();
+            }
         } catch (Exception e) {
             LOG.warn("Failed to close entryLog metadata-map", e);
         }
