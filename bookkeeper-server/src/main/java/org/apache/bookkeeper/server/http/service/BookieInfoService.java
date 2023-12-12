@@ -23,11 +23,16 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.DiskCacheDownGradeStatus;
+import org.apache.bookkeeper.bookie.GarbageCollectionStatus;
 import org.apache.bookkeeper.common.util.JsonUtil;
 import org.apache.bookkeeper.http.HttpServer;
 import org.apache.bookkeeper.http.service.HttpEndpointService;
 import org.apache.bookkeeper.http.service.HttpServiceRequest;
 import org.apache.bookkeeper.http.service.HttpServiceResponse;
+
+import java.lang.management.ManagementFactory;
+import java.util.List;
 
 /**
  * HttpEndpointService that exposes the current info of the bookie.
@@ -54,6 +59,15 @@ public class BookieInfoService implements HttpEndpointService {
     public static class BookieInfo {
         private long freeSpace;
         private long totalSpace;
+        private long freeColdSpace;
+        private long totalColdSpace;
+        private int bookieHttpPort;
+        private int bookieServicePort;
+        private long startupTime;
+        private boolean isReadOnly;
+        List<GarbageCollectionStatus> gcDetails;
+        List<DiskCacheDownGradeStatus> downgradeStatus;
+        private String bookieVersion;
     }
 
     @Override
@@ -65,8 +79,23 @@ public class BookieInfoService implements HttpEndpointService {
             response.setBody("Only GET is supported.");
             return response;
         }
+        int bookieHttpPort = bookie.getConf().getHttpServerPort();
+        int bookieServicePort = bookie.getConf().getBookiePort();
+        long startupTime = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().getStartTime();
+        boolean isReadOnly = bookie.getStateManager().isReadOnly();
+        String bookieVersion = bookie.getBookieVersion();
+        List<GarbageCollectionStatus> gcDetails = bookie.getLedgerStorage().getGarbageCollectionStatus();
+        List<DiskCacheDownGradeStatus> downgradeStatus = bookie.getLedgerStorage().getDiskCacheDowngradeStatus();
 
-        BookieInfo bi = new BookieInfo(bookie.getTotalFreeSpace(), bookie.getTotalDiskSpace());
+
+
+        BookieInfo bi = new BookieInfo(
+                bookie.getTotalFreeSpace(),
+                bookie.getTotalDiskSpace(),
+                bookie.getTotalFreeColdSpace(),
+                bookie.getTotalColdDiskSpace(),
+                bookieHttpPort, bookieServicePort,
+                startupTime, isReadOnly, gcDetails, downgradeStatus, bookieVersion);
 
         String jsonResponse = JsonUtil.toJson(bi);
         response.setBody(jsonResponse);

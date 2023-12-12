@@ -55,6 +55,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+
+import org.apache.bookkeeper.BookieVersion;
 import org.apache.bookkeeper.bookie.BookieException.DiskPartitionDuplicationException;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
@@ -321,6 +323,14 @@ public class BookieImpl extends BookieCriticalThread implements Bookie {
 
     public long getTotalDiskSpace() throws IOException {
         return getLedgerDirsManager().getTotalDiskSpace(ledgerDirsManager.getAllLedgerDirs());
+    }
+
+    public String getBookieVersion() {
+        return BookieVersion.getVersion();
+    }
+
+    public ServerConfiguration getConf() {
+        return this.conf;
     }
 
     public long getTotalColdDiskSpace() throws IOException {

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.PrimitiveIterator;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bookkeeper.common.util.Watcher;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.util.DiskChecker;
 
@@ -60,6 +61,10 @@ public interface Bookie {
     // these can probably be moved out and called directly on ledgerdirmanager
     long getTotalColdDiskSpace() throws IOException;
     long getTotalFreeColdSpace() throws IOException;
+
+    String getBookieVersion();
+
+    ServerConfiguration getConf();
 
 
     // TODO: Shouldn't this be async?

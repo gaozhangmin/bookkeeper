@@ -375,11 +375,11 @@ public class ColdStorageArchiveThread implements Runnable {
                     this.removeEmptyEntryLog(entryLogId);
                 } else {
                     if (entryLogMeta.getFlushTimestamp() == -1L) {
-                        BasicFileAttributes attributes = Files.readAttributes(
-                                Path.of(ledgerDir.getPath(), Long.toHexString(entryLogId) + LOG_FILE_SUFFIX),
-                                BasicFileAttributes.class);
-                        long creationTime = attributes.lastModifiedTime().toMillis();
-                        entryLogMeta.setFlushTimestamp(creationTime);
+//                        BasicFileAttributes attributes = Files.readAttributes(
+//                                Path.of(ledgerDir.getPath(), Long.toHexString(entryLogId) + LOG_FILE_SUFFIX),
+//                                BasicFileAttributes.class);
+//                        long creationTime = attributes.lastModifiedTime().toMillis();
+//                        entryLogMeta.setFlushTimestamp(creationTime);
                     }
                     entryLogMetaMap.put(entryLogId, entryLogMeta);
                 }
