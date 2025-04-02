@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory.DbConfigType;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.commons.lang3.StringUtils;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
 import org.rocksdb.Cache;
@@ -134,7 +135,7 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             dbFilePath = conf.getDefaultRocksDBConf();
         }
         log.info("Searching for a RocksDB configuration file in {}", dbFilePath);
-        if (Paths.get(dbFilePath).toFile().exists()) {
+        if (StringUtils.isNotBlank(dbFilePath) && Paths.get(dbFilePath).toFile().exists()) {
             log.info("Found a RocksDB configuration file and using it to initialize the RocksDB");
             db = initializeRocksDBWithConfFile(basePath, subPath, dbConfigType, conf, readOnly, dbFilePath);
         } else {
