@@ -49,6 +49,7 @@ else
 fi
 
 # Check for the java to use
+export JAVA_HOME=/home/web_server/bookkeeper/jdk-17
 if [[ -z ${JAVA_HOME} ]]; then
   JAVA=$(which java)
   if [ $? != 0 ]; then
@@ -64,6 +65,7 @@ BK_HOME=${BK_HOME:-"`cd ${BINDIR}/..;pwd`"}
 BK_CONFDIR=${BK_HOME}/conf
 DEFAULT_LOG_CONF=${BK_CONFDIR}/log4j2.xml
 
+source ${BK_CONFDIR}/kwai_runtime.sh
 source ${BK_CONFDIR}/nettyenv.sh
 source ${BK_CONFDIR}/bkenv.sh
 source ${BK_CONFDIR}/bk_cli_env.sh
@@ -346,7 +348,7 @@ find_table_service() {
       TABLE_SERVICE_RELEASED="false"
     fi
   fi
-
+  
   # check the configuration to see if table service is enabled or not.
   if [ -z "${ENABLE_TABLE_SERVICE}" ]; then
     # mask exit code if the configuration file doesn't contain `StreamStorageLifecycleComponent`
@@ -359,7 +361,7 @@ find_table_service() {
       ENABLE_TABLE_SERVICE="true"
     fi
   fi
-
+  
   # standalone only run
   if [ \( "x${SERVICE_COMMAND}" == "xstandalone" \) -a \( "x${TABLE_SERVICE_RELEASED}" == "xfalse" \) ]; then
     echo "The release binary is built without table service. Use \`localbookie <n>\` instead of \`standalone\` for local development."

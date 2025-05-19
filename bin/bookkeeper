@@ -26,7 +26,7 @@ BK_HOME=`cd ${BINDIR}/..;pwd`
 source ${BK_HOME}/bin/common.sh
 
 # default variables
-DEFAULT_CONF=${BK_HOME}/conf/bk_server.conf
+DEFAULT_CONF=${BK_HOME}/conf/$KWS_SERVICE_NAME/bk_server.conf
 DEFAULT_ZK_CONF=${BK_HOME}/conf/zookeeper.conf
 
 if [ -z "$BOOKIE_CONF" ]; then

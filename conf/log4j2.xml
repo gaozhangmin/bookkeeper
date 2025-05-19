@@ -39,19 +39,21 @@
         <File name="TRACEFILEMDC" fileName="${sys:bookkeeper.log.dir}/bookkeeper-trace.log">
             <PatternLayout pattern="%d{ISO8601} - %-5p [%t:%C{1}@%L][%ndc] %X - %m%n"/>
         </File>
-        <RollingFile name="ROLLINGFILE" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}%d{.yyyy-MM-dd}">
+        <RollingFile name="ROLLINGFILE" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/bk-%d{yyyy-MM-dd}-%i.log">
             <PatternLayout pattern="%d{ISO8601} - %-5p [%t:%C{1}@%L] - %m%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy modulate="true"/>
+                <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
-            <DefaultRolloverStrategy max="100"/>
+            <DefaultRolloverStrategy max="14"/>
         </RollingFile>
-        <RollingFile name="ROLLINGFILEMDC" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}%d{.yyyy-MM-dd}">
+        <RollingFile name="ROLLINGFILEMDC" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/bk-%d{yyyy-MM-dd}-%i.log">
             <PatternLayout pattern="%d{ISO8601} - %-5p [%t:%C{1}@%L] %X - %m%n"/>
             <Policies>
                 <TimeBasedTriggeringPolicy modulate="true"/>
+                <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
-            <DefaultRolloverStrategy max="100"/>
+            <DefaultRolloverStrategy max="14"/>
         </RollingFile>
     </Appenders>
     <Loggers>
