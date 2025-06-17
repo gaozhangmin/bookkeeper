@@ -51,11 +51,18 @@ echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > /data/web_server/project/kuai
 
 ## set directMem
 directMem="80g"
+# set heap size
+heapSize="20g"
 if [[ $KWS_SERVICE_NAME == *kop* ]]; then
-  directMem="40g"
+  directMem="60g"
+  heapSize="12g"
+  # install python kconf
+  pip3 install infra-kconf
+  # generate cluster config
+  python3 /home/web_server/bookkeeper/apps/bin/init_cluster_config.py
 fi
 
-export BOOKIE_MEM_OPTS="-Xms20g -Xmx20g -XX:MaxDirectMemorySize=${directMem} -XX:-UseNUMA"
+export BOOKIE_MEM_OPTS="-Xms${heapSize} -Xmx${heapSize} -XX:MaxDirectMemorySize=${directMem} -XX:-UseNUMA"
 export BOOKIE_ROOT_LOG_APPENDER="ROLLINGFILE"
 export BOOKIE_LOG_DIR="/data/logs/$KWS_SERVICE_NAME"
 

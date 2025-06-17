@@ -27,6 +27,10 @@ source ${BK_HOME}/bin/common.sh
 
 # default variables
 DEFAULT_CONF=${BK_HOME}/conf/$KWS_SERVICE_NAME/bk_server.conf
+# kop-bk uses generated bk_server.conf
+if [[ $KWS_SERVICE_NAME == *kop* ]]; then
+  DEFAULT_CONF=${BK_HOME}/conf/generated_bk_server.conf
+fi
 DEFAULT_ZK_CONF=${BK_HOME}/conf/zookeeper.conf
 
 if [ -z "$BOOKIE_CONF" ]; then
