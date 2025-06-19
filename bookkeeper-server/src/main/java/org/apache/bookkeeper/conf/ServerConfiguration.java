@@ -239,6 +239,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
     // Whether the bookie should use its hostname or ipaddress for the
     // registration.
+    protected static final String PUBLISH_KWS_INFO = "publishKwsInfo";
     protected static final String USE_HOST_NAME_AS_BOOKIE_ID = "useHostNameAsBookieID";
     protected static final String USE_SHORT_HOST_NAME = "useShortHostName";
     protected static final String ENABLE_LOCAL_TRANSPORT = "enableLocalTransport";
@@ -3051,6 +3052,28 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setLedgerStorageClass(String ledgerStorageClass) {
         LEDGER_STORAGE_CLASS_KEY.set(this, ledgerStorageClass);
+        return this;
+    }
+
+    /**
+     * Get whether bookie publish KWS(e.g., PAZ,region) info to metastore. Defaults to false.
+     *
+     * @return true, then bookie will be registered with KWS info.
+     */
+    public boolean publishKwsInfo() {
+        return getBoolean(PUBLISH_KWS_INFO, false);
+    }
+
+    /**
+     * Configure the bookie to publish KWS(e.g., PAZ,region) info to register with the
+     * co-ordination service(eg: zookeeper) and in ledger metadata.
+     *
+     * @see #publishKwsInfo
+     * @param publishKwsInfo whether to publish the KWS info to the metastore
+     * @return server configuration
+     */
+    public ServerConfiguration setPublishKwsInfo(boolean publishKwsInfo) {
+        setProperty(PUBLISH_KWS_INFO, publishKwsInfo);
         return this;
     }
 

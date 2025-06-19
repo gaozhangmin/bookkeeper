@@ -18,6 +18,7 @@
 
 package org.apache.bookkeeper.server.service;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.bookkeeper.proto.BookieServer.newBookieServer;
 
 import java.io.IOException;
@@ -115,7 +116,12 @@ public class BookieService extends ServerLifecycleComponent {
                     localAddress.getHostName(),
                     "bookie-rpc", null, extensions);
             componentInfoPublisher.publishEndpoint(endpoint);
-
+            if (conf.getServerConf().publishKwsInfo()) {
+                String region = checkNotNull(System.getenv("KWS_SERVICE_REGION"), "KWS_SERVICE_REGION is null");
+                String paz = checkNotNull(System.getenv("KWS_SERVICE_PAZ"), "KWS_SERVICE_PAZ is null");
+                componentInfoPublisher.publishProperty("KWS_SERVICE_REGION", region);
+                componentInfoPublisher.publishProperty("KWS_SERVICE_PAZ", paz);
+            }
         } catch (UnknownHostException err) {
             log.error("Cannot compute local address", err);
         }
