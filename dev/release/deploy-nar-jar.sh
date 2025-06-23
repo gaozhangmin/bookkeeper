@@ -59,7 +59,6 @@ function deploy_nar_jar() {
     -Dversion="$project_version" \
     -Dpackaging=java-source \
     -DgeneratePom=false \
-    -DpomFile="$module/.flattened-pom.xml"
 
   echo "deploy $module success!!"
 }
