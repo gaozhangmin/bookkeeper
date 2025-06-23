@@ -38,6 +38,7 @@ fi
 function deploy_nar_jar() {
   module=$1
   echo "deploy jar for $module"
+
   mvn deploy:deploy-file \
     -Dfile="$module/target/$module-$project_version.jar" \
     -Durl="$url" \
@@ -48,17 +49,6 @@ function deploy_nar_jar() {
     -Dpackaging=jar \
     -DgeneratePom=false \
     -DpomFile="$module/.flattened-pom.xml"
-
-  echo "deploy source-jar for $module"
-  mvn deploy:deploy-file \
-    -Dfile="$module/target/$module-$project_version-sources.jar" \
-    -Durl="$url" \
-    -DrepositoryId="$repositoryId" \
-    -DgroupId=org.apache.bookkeeper \
-    -DartifactId="$module" \
-    -Dversion="$project_version" \
-    -Dpackaging=java-source \
-    -DgeneratePom=false \
 
   echo "deploy $module success!!"
 }
