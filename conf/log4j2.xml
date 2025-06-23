@@ -45,23 +45,31 @@
                 <TimeBasedTriggeringPolicy modulate="true"/>
                 <SizeBasedTriggeringPolicy size="512 MB"/>
             </Policies>
-            <DefaultRolloverStrategy max="14"/>
-        </RollingFile>
-        <RollingFile name="ROLLINGFILEMDC" fileName="${sys:bookkeeper.log.dir}/${sys:bookkeeper.log.file}" filePattern="${sys:bookkeeper.log.dir}/bk-%d{yyyy-MM-dd}-%i.log">
-            <PatternLayout pattern="%d{ISO8601} - %-5p [%t:%C{1}@%L] %X - %m%n"/>
-            <Policies>
-                <TimeBasedTriggeringPolicy modulate="true"/>
-                <SizeBasedTriggeringPolicy size="512 MB"/>
-            </Policies>
-            <DefaultRolloverStrategy max="14"/>
+            <DefaultRolloverStrategy fileIndex="nomax">
+                <Delete basePath="${sys:bookkeeper.log.dir}" maxDepth="1">
+                    <IfFileName glob="bk-*.log*">
+                        <IfAny>
+                            <IfAccumulatedFileSize exceeds="10GB"/>
+                            <IfAccumulatedFileCount exceeds="100"/>
+                            <IfLastModified age="14d"/>
+                        </IfAny>
+                    </IfFileName>
+                </Delete>
+                <Delete basePath="${sys:bookkeeper.log.dir}" maxDepth="1">
+                    <IfFileName glob="gc_*.log*">
+                        <IfAny>
+                            <IfAccumulatedFileSize exceeds="5GB"/>
+                            <IfAccumulatedFileCount exceeds="100"/>
+                            <IfLastModified age="14d"/>
+                        </IfAny>
+                    </IfFileName>
+                </Delete>
+            </DefaultRolloverStrategy>
         </RollingFile>
     </Appenders>
     <Loggers>
         <Root level="${sys:bookkeeper.log.root.level}">
             <AppenderRef ref="${sys:bookkeeper.log.root.appender}"/>
         </Root>
-        <Logger name="org.apache.bookkeeper.bookie.storage.directentrylogger" level="INFO">
-                <AppenderRef ref="${sys:bookkeeper.log.root.appender}MDC"/>
-        </Logger>
     </Loggers>
 </Configuration>
