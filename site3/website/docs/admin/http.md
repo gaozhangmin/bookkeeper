@@ -325,10 +325,15 @@ Currently all the HTTP endpoints could be divided into these 5 components:
 1. Method: PUT
     * Description:  trigger gc for this bookie.
     * Parameters:
-        | Name | Type | Required | Description |
-        |:-----|:-----|:---------|:------------|
-        |forceMajor  | Boolean | No | only trigger the forceMajor gc for this bookie. |
-        |forceMinor  | Boolean | No | only trigger the forceMinor gc for this bookie. |
+
+     | Name | Type    | Required | Description                                     |
+             |:--------|:-----|:----------------------------------------------|:------------------------------------------------|
+     |forceMajor  | Boolean | No | only trigger the forceMajor gc for this bookie. |
+     |forceMinor  | Boolean | No | only trigger the forceMinor gc for this bookie. |
+     |majorCompactionThreshold  | Double  | No | threshold of major compaction.                  |
+     |minorCompactionThreshold  | Double  | No | threshold of minor compaction.                  |
+     |majorCompactionMaxTimeMillis  | Long    | No | maximum milliseconds to run major compaction.   |
+     |minorCompactionMaxTimeMillis  | Long  | No | maximum milliseconds to run minor compaction.   |
     * Response:  
 
         | Code   | Description |

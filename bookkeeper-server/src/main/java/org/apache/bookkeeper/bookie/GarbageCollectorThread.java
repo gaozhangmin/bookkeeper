@@ -321,15 +321,22 @@ public class GarbageCollectorThread implements Runnable {
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: {}", Thread.currentThread().getName());
             triggerGC(true, suspendMajorCompaction.get(),
-                      suspendMinorCompaction.get());
+                      suspendMinorCompaction.get(), majorCompactionThreshold, minorCompactionThreshold,
+                    majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
         }
     }
 
-    public void enableForceGC(boolean forceMajor, boolean forceMinor) {
+    public void enableForceGC(boolean forceMajor, boolean forceMinor,
+                              double majorCompactionThreshold, double minorCompactionThreshold,
+                              long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         if (forceGarbageCollection.compareAndSet(false, true)) {
-            LOG.info("Forced garbage collection triggered by thread: {}, forceMajor: {}, forceMinor: {}",
-                Thread.currentThread().getName(), forceMajor, forceMinor);
-            triggerGC(true, !forceMajor, !forceMinor);
+            LOG.info("Forced garbage collection triggered by thread: {}, forceMajor: {}, forceMinor: {}, "
+                            + "majorCompactionThreshold :{}, minorCompactionThreshold: {}, "
+                            + "majorCompactionMaxTimeMillis: {}, minorCompactionMaxTimeMillis: {}",
+                Thread.currentThread().getName(), forceMajor, forceMinor, majorCompactionThreshold,
+                    minorCompactionThreshold, majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
+            triggerGC(true, !forceMajor, !forceMinor, majorCompactionThreshold, minorCompactionThreshold,
+                    majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
         }
     }
 
@@ -342,9 +349,14 @@ public class GarbageCollectorThread implements Runnable {
 
     Future<?> triggerGC(final boolean force,
                         final boolean suspendMajor,
-                        final boolean suspendMinor) {
+                        final boolean suspendMinor,
+                        final double majorCompactionThreshold,
+                        final double minorCompactionThreshold,
+                        final long majorCompactionMaxTimeMillis,
+                        final long minorCompactionMaxTimeMillis) {
         return gcExecutor.submit(() -> {
-                runWithFlags(force, suspendMajor, suspendMinor);
+                runWithFlags(force, suspendMajor, suspendMinor, majorCompactionThreshold, minorCompactionThreshold,
+                        majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             });
     }
 
@@ -354,7 +366,8 @@ public class GarbageCollectorThread implements Runnable {
         final boolean suspendMinor = suspendMinorCompaction.get();
 
         return gcExecutor.submit(() -> {
-                runWithFlags(force, suspendMajor, suspendMinor);
+                runWithFlags(force, suspendMajor, suspendMinor, majorCompactionThreshold, minorCompactionThreshold,
+                        majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
             });
     }
 
@@ -424,7 +437,8 @@ public class GarbageCollectorThread implements Runnable {
         boolean suspendMajor = suspendMajorCompaction.get();
         boolean suspendMinor = suspendMinorCompaction.get();
 
-        runWithFlags(force, suspendMajor, suspendMinor);
+        runWithFlags(force, suspendMajor, suspendMinor, majorCompactionThreshold, minorCompactionThreshold,
+                majorCompactionMaxTimeMillis, minorCompactionMaxTimeMillis);
 
         if (force) {
             // only set force to false if it had been true when the garbage
@@ -433,7 +447,9 @@ public class GarbageCollectorThread implements Runnable {
         }
     }
 
-    public void runWithFlags(boolean force, boolean suspendMajor, boolean suspendMinor) {
+    public void runWithFlags(boolean force, boolean suspendMajor, boolean suspendMinor,
+                             double majorCompactionThreshold, double minorCompactionThreshold,
+                             long majorCompactionMaxTimeMillis, long minorCompactionMaxTimeMillis) {
         long threadStart = MathUtils.nowInNano();
         if (force) {
             LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
