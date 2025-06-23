@@ -22,7 +22,7 @@
   <parent>
     <artifactId>bookkeeper-stats-parent</artifactId>
     <groupId>org.apache.bookkeeper.stats</groupId>
-    <version>4.17.1.0-kwai</version>
+    <version>${revision}</version>
   </parent>
   <groupId>org.apache.bookkeeper.stats</groupId>
   <artifactId>bookkeeper-stats-utils</artifactId>

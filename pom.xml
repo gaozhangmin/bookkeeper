@@ -23,7 +23,7 @@
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.apache.bookkeeper</groupId>
-  <version>4.17.1.0-kwai</version>
+  <version>${revision}</version>
   <artifactId>bookkeeper</artifactId>
   <packaging>pom</packaging>
   <name>Apache BookKeeper :: Parent</name>
@@ -37,19 +37,11 @@
     </license>
   </licenses>
   <scm>
-    <connection>scm:git:https://github.com/apache/bookkeeper.git</connection>
-    <developerConnection>scm:git:https://github.com/apache/bookkeeper.git</developerConnection>
-    <url>https://github.com/apache/bookkeeper</url>
-    <tag>v4.17.1.0-kwai-rc0</tag>
+    <connection>scm:git:git@git.corp.kuaishou.com:infra/bookkeeper.git</connection>
+    <developerConnection>scm:git:git@git.corp.kuaishou.com:infra/bookkeeper.git</developerConnection>
+    <url>https://git.corp.kuaishou.com/infra/bookkeeper</url>
+    <tag>HEAD</tag>
   </scm>
-  <issueManagement>
-    <system>JIRA</system>
-    <url>https://issues.apache.org/jira/browse/BOOKKEEPER</url>
-  </issueManagement>
-  <ciManagement>
-    <system>Jenkins</system>
-    <url>https://builds.apache.org/job/bookkeeper-master</url>
-  </ciManagement>
   <modules>
     <module>buildtools</module>
     <module>circe-checksum</module>
@@ -105,6 +97,7 @@
     </developer>
   </developers>
   <properties>
+    <revision>4.17.1.0-kwai-SNAPSHOT</revision>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -952,6 +945,32 @@
     </pluginManagement>
     <plugins>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+        <version>1.2.7</version>
+        <executions>
+          <execution>
+            <id>flatten</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>flatten</goal>
+            </goals>
+            <configuration>
+              <flattenDependencyMode>direct</flattenDependencyMode>
+              <updatePomFile>true</updatePomFile>
+              <flattenMode>clean</flattenMode>
+            </configuration>
+          </execution>
+          <execution>
+            <id>flatten-clean</id>
+            <phase>clean</phase>
+            <goals>
+              <goal>clean</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-maven-plugin</artifactId>
         <version>${spotbugs-maven-plugin.version}</version>
@@ -1153,6 +1172,18 @@
       </plugin>
     </plugins>
   </build>
+  <distributionManagement>
+    <repository>
+      <id>kuaishou.releases</id>
+      <name>Internal Release Repository</name>
+      <url>http://nexus.corp.kuaishou.com:88/nexus/content/repositories/releases/</url>
+    </repository>
+    <snapshotRepository>
+      <id>kuaishou.snapshots</id>
+      <name>Internal Snapshot Repository</name>
+      <url>http://nexus.corp.kuaishou.com:88/nexus/content/repositories/snapshots/</url>
+    </snapshotRepository>
+  </distributionManagement>
   <profiles>
     <profile>
       <id>owasp-dependency-check</id>

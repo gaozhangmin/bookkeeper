@@ -8,6 +8,9 @@
 .idea/
 *.iml
 *.iws
+.flattened-pom.xml
+pom.xml.releaseBackup
+release.properties
 
 # NetBeans
 /**/nb-configuration.xml

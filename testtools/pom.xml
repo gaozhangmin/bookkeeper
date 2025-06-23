@@ -20,11 +20,11 @@
     <parent>
         <groupId>org.apache.bookkeeper</groupId>
         <artifactId>bookkeeper</artifactId>
-        <version>4.17.1.0-kwai</version>
+        <version>${revision}</version>
     </parent>
     <artifactId>testtools</artifactId>
     <name>Apache BookKeeper :: Test Tools</name>
-    <version>4.17.1.0-kwai</version>
+    <version>${revision}</version>
 
     <dependencies>
         <dependency>
