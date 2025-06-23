@@ -91,9 +91,7 @@ class LedgerDirsMonitor {
                         }
                         return e.getUsage();
                     });
-                    for (LedgerDirsListener listener : ldm.getListeners()) {
-                        listener.diskAlmostFull(dir);
-                    }
+                    ldm.addToWarnDirs(dir);
                 } catch (DiskOutOfSpaceException e) {
                     diskUsages.compute(dir, (d, prevUsage) -> {
                         if (null == prevUsage || e.getUsage() != prevUsage) {
@@ -121,6 +119,25 @@ class LedgerDirsMonitor {
             }
             for (LedgerDirsListener listener : ldm.getListeners()) {
                 listener.allDisksFull(highPriorityWritesAllowed);
+            }
+        }
+
+        // - Update warnThresholdDirs disk usage.
+        List<File> warnDirs = new ArrayList<File>(ldm.getWarnLedgerDirs());
+        for (File dir : warnDirs) {
+            try {
+                diskUsages.put(dir, diskChecker.checkDir(dir));
+                ldm.removeFromWarnDirs(dir);
+            } catch (DiskErrorException e) {
+                // Notify disk failure to all the listeners
+                for (LedgerDirsListener listener : ldm.getListeners()) {
+                    listener.diskFailed(dir);
+                }
+            } catch (DiskWarnThresholdException e) {
+                diskUsages.put(dir, e.getUsage());
+            } catch (DiskOutOfSpaceException e) {
+                diskUsages.put(dir, e.getUsage());
+                ldm.addToFilledDirs(dir);
             }
         }
 
@@ -254,7 +271,7 @@ class LedgerDirsMonitor {
 
     private void validateThreshold(float diskSpaceThreshold, float diskSpaceLwmThreshold) {
         if (diskSpaceThreshold <= 0 || diskSpaceThreshold >= 1 || diskSpaceLwmThreshold - diskSpaceThreshold > 1e-6) {
-            throw new IllegalArgumentException("Disk space threashold: "
+            throw new IllegalArgumentException("Disk space threshold: "
                     + diskSpaceThreshold + " and lwm threshold: " + diskSpaceLwmThreshold
                     + " are not valid. Should be > 0 and < 1 and diskSpaceThreshold >= diskSpaceLwmThreshold");
         }
