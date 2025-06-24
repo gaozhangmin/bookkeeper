@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.apache.bookkeeper.tests</groupId>
     <artifactId>tests-parent</artifactId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
   </parent>
   <groupId>org.apache.bookkeeper.tests</groupId>
   <artifactId>docker-images</artifactId>

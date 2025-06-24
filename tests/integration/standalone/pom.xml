@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.apache.bookkeeper.tests</groupId>
     <artifactId>integration</artifactId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 

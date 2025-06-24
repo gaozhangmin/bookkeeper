@@ -24,7 +24,7 @@
   <parent>
     <groupId>org.apache.bookkeeper.metadata.drivers</groupId>
     <artifactId>metadata-drivers-parent</artifactId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
   <groupId>org.apache.bookkeeper.metadata.drivers</groupId>

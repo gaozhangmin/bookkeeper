@@ -20,7 +20,7 @@
   <parent>
     <artifactId>bookkeeper-stats-providers</artifactId>
     <groupId>org.apache.bookkeeper.stats</groupId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
   </parent>
 
 

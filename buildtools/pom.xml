@@ -20,9 +20,9 @@
   <parent>
     <groupId>org.apache.bookkeeper</groupId>
     <artifactId>bookkeeper</artifactId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
   </parent>
   <artifactId>buildtools</artifactId>
   <name>Apache BookKeeper :: Build Tools</name>
-  <version>${revision}</version>
+  <version>4.17.1.0-kwai-SNAPSHOT</version>
 </project>

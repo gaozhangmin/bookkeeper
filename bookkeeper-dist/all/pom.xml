@@ -23,7 +23,7 @@
   <parent>
     <artifactId>bookkeeper-dist</artifactId>
     <groupId>org.apache.bookkeeper</groupId>
-    <version>${revision}</version>
+    <version>4.17.1.0-kwai-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 
