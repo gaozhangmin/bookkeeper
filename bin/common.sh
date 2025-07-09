@@ -195,20 +195,7 @@ find_module_jar() {
     BUILT_JAR=$(find_module_jar_at ${BK_HOME}/${MODULE_PATH}/target ${MODULE_NAME})
     if [ -z "${BUILT_JAR}" ]; then
       echo "Couldn't find module '${MODULE_NAME}' jar." >&2
-      read -p "Do you want me to run \`mvn package -DskipTests\` for you ? (y|n) " answer
-      case "${answer:0:1}" in
-        y|Y )
-          mkdir -p ${BK_HOME}/logs
-          output="${BK_HOME}/logs/build.out"
-          echo "see output at ${output} for the progress ..." >&2
-          mvn package -DskipTests &> ${output}
-          ;;
-        * )
-          exit 1
-          ;;
-      esac
-
-      BUILT_JAR=$(find_module_jar_at ${BK_HOME}/${MODULE_PATH}/target ${MODULE_NAME})
+      exit 1
     fi
     if [ -n "${BUILT_JAR}" ]; then
       MODULE_JAR=${BUILT_JAR}

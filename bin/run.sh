@@ -23,7 +23,7 @@ set -x
 # install jdk
 bk_basic=/home/web_server/bookkeeper
 jdk_dirname=$bk_basic/jdk-17
-wget https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/bop/jdk-17_linux-x64_bin.tar.gz
+wget -q https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/bop/jdk-17_linux-x64_bin.tar.gz
 if [ ! -d "$bk_basic" ]; then
   mkdir -p "$bk_basic"
 fi
