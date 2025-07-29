@@ -1713,9 +1713,9 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         }
 
         void timeout() {
-            errorOut(BKException.Code.TimeoutException);
             timeoutOpLogger.registerSuccessfulEvent(latency(),
                                                     TimeUnit.NANOSECONDS);
+            errorOut(BKException.Code.TimeoutException);
         }
 
         protected void logResponse(StatusCode status, Object... extraInfo) {
