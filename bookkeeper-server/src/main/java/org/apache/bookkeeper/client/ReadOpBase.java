@@ -196,15 +196,17 @@ public abstract class ReadOpBase implements Runnable {
             if (BKException.Code.NoSuchEntryException == rc
                     || BKException.Code.NoSuchLedgerExistsException == rc) {
                 ++numBookiesMissingEntry;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("No such entry found on bookie.  L{} E{} bookie: {}",
+                if (BKException.Code.NoSuchEntryException == rc) {
+                    LOG.info("No such entry found on bookie.  L{} E{} bookie: {}",
+                            lh.ledgerId, eId, host);
+                }
+                if (BKException.Code.NoSuchLedgerExistsException == rc) {
+                    LOG.info("No such ledger found on bookie.  L{} E{} bookie: {}",
                             lh.ledgerId, eId, host);
                 }
             } else {
-                if (LOG.isInfoEnabled()) {
-                    LOG.info("{} while reading L{} E{} from bookie: {}",
-                            errMsg, lh.ledgerId, eId, host);
-                }
+                LOG.info("{} while reading L{} E{} from bookie: {}",
+                        errMsg, lh.ledgerId, eId, host);
             }
 
             lh.recordReadErrorOnBookie(bookieIndex);

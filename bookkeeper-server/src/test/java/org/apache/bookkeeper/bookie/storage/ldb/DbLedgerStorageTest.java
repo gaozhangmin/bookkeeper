@@ -53,6 +53,7 @@ import org.apache.bookkeeper.bookie.storage.EntryLogger;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.awaitility.Awaitility;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -879,6 +880,8 @@ public class DbLedgerStorageTest {
         Assert.assertEquals(pendingDeletedLedgers.size(), 0);
         pendingDeletedLedgers.add(2L);
         bookie.getLedgerStorage().flush();
-        Assert.assertEquals(pendingDeletedLedgers.size(), 0);
+        Awaitility.await().untilAsserted(() -> {
+            Assert.assertEquals(pendingDeletedLedgers.size(), 0);
+        });
     }
 }
