@@ -66,6 +66,9 @@ export BOOKIE_MEM_OPTS="-Xms${heapSize} -Xmx${heapSize} -XX:MaxDirectMemorySize=
 export BOOKIE_ROOT_LOG_APPENDER="ROLLINGFILE"
 export BOOKIE_LOG_DIR="/data/logs/$KWS_SERVICE_NAME"
 
+## set rocksdb jni dir, default is /tmp
+export ROCKSDB_SHAREDLIB_DIR="/home/web_server/bookkeeper/apps"
+
 numa='numactl --interleave all'
 which cgstart > /dev/null 2>&1
 if [[ $? != 0 ]]; then

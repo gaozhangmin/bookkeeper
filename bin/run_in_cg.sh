@@ -70,4 +70,8 @@ echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > /data/web_server/project/kuai
 export BOOKIE_MEM_OPTS="-Xms20g -Xmx20g -XX:MaxDirectMemorySize=80g"
 export BOOKIE_ROOT_LOG_APPENDER="ROLLINGFILE"
 export BOOKIE_LOG_DIR="/data/logs/$KWS_SERVICE_NAME"
+
+## set rocksdb jni dir, default is /tmp
+export ROCKSDB_SHAREDLIB_DIR="/home/web_server/bookkeeper/apps"
+
 cgexec -g "cpu,memory:$cg_name" bin/bookkeeper bookie
