@@ -44,7 +44,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BKException.ZKException;
 import org.apache.bookkeeper.common.concurrent.FutureUtils;
-import org.apache.bookkeeper.common.concurrent.FutureUtils.Sequencer;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.proto.DataFormats.BookieServiceInfoFormat;
 import org.apache.bookkeeper.versioning.LongVersion;
@@ -69,10 +68,10 @@ public class ZKRegistrationClient implements RegistrationClient {
     static final int ZK_CONNECT_BACKOFF_MS = 200;
 
     class WatchTask
-            implements Runnable,
-            Watcher,
-            BiConsumer<Versioned<Set<BookieId>>, Throwable>,
-            AutoCloseable {
+        implements Runnable,
+                   Watcher,
+                   BiConsumer<Versioned<Set<BookieId>>, Throwable>,
+                   AutoCloseable {
 
         private final String regPath;
         private final Set<RegistrationListener> listeners;
@@ -95,9 +94,9 @@ public class ZKRegistrationClient implements RegistrationClient {
             if (listeners.add(listener)) {
                 if (null != bookies) {
                     scheduler.execute(() -> {
-                        listener.onBookiesChanged(
-                                new Versioned<>(bookies, version));
-                    });
+                            listener.onBookiesChanged(
+                                    new Versioned<>(bookies, version));
+                        });
                 }
             }
             return true;
@@ -126,7 +125,7 @@ public class ZKRegistrationClient implements RegistrationClient {
             }
 
             getChildren(regPath, this)
-                    .whenCompleteAsync(this, scheduler);
+                .whenCompleteAsync(this, scheduler);
         }
 
         @Override
@@ -191,7 +190,7 @@ public class ZKRegistrationClient implements RegistrationClient {
     private final String bookieRegistrationPath;
     private final String bookieAllRegistrationPath;
     private final String bookieReadonlyRegistrationPath;
-    private final Sequencer<Void> sequencer;
+    private final FutureUtils.Sequencer<Void> sequencer;
 
     public ZKRegistrationClient(ZooKeeper zk,
                                 String ledgersRootPath,
@@ -199,14 +198,14 @@ public class ZKRegistrationClient implements RegistrationClient {
                                 boolean bookieAddressTracking) {
         this.zk = zk;
         this.scheduler = scheduler;
-        this.sequencer = Sequencer.create();
+        this.sequencer = FutureUtils.Sequencer.create();
         // Following Bookie Network Address Changes is an expensive operation
         // as it requires additional ZooKeeper watches
         // we can disable this feature, in case the BK cluster has only
         // static addresses
         this.bookieAddressTracking = bookieAddressTracking;
         this.bookieServiceInfoCacheInvalidation = bookieAddressTracking
-                ? new BookieServiceInfoCacheInvalidationWatcher() : null;
+                                                    ? new BookieServiceInfoCacheInvalidationWatcher() : null;
         this.bookieRegistrationPath = ledgersRootPath + "/" + AVAILABLE_NODE;
         this.bookieAllRegistrationPath = ledgersRootPath + "/" + COOKIE_NODE;
         this.bookieReadonlyRegistrationPath = this.bookieRegistrationPath + "/" + READONLY;
@@ -259,6 +258,21 @@ public class ZKRegistrationClient implements RegistrationClient {
         }
     }
 
+    private Versioned<BookieServiceInfo> updateBookieInfo(BookieId bookieId, boolean isReadonly,
+                                                                  byte[] bytes, Stat stat)
+            throws IOException {
+        BookieServiceInfo bookieServiceInfo = deserializeBookieServiceInfo(bookieId, bytes);
+        Versioned<BookieServiceInfo> result = new Versioned<>(bookieServiceInfo,
+                new LongVersion(stat.getCversion()));
+        log.info("Update BookieInfoCache (writable bookie) {} -> {}", bookieId, result.getValue());
+        if (isReadonly) {
+            readOnlyBookieInfo.put(bookieId, result);
+        } else {
+            writableBookieInfo.put(bookieId, result);
+        }
+        return result;
+    }
+
     /**
      * Read BookieServiceInfo from ZooKeeper and updates the local cache.
      *
@@ -274,11 +288,8 @@ public class ZKRegistrationClient implements RegistrationClient {
                 (int rc, String path, Object o, byte[] bytes, Stat stat) -> {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         try {
-                            BookieServiceInfo bookieServiceInfo = deserializeBookieServiceInfo(bookieId, bytes);
-                            Versioned<BookieServiceInfo> result = new Versioned<>(bookieServiceInfo,
-                                    new LongVersion(stat.getCversion()));
-                            log.info("Update BookieInfoCache (writable bookie) {} -> {}", bookieId, result.getValue());
-                            writableBookieInfo.put(bookieId, result);
+                            Versioned<BookieServiceInfo> result =
+                                    updateBookieInfo(bookieId, false, bytes, stat);
                             promise.complete(result);
                         } catch (IOException ex) {
                             log.error("Cannot update BookieInfo for ", ex);
@@ -292,14 +303,8 @@ public class ZKRegistrationClient implements RegistrationClient {
                                 (int rc2, String path2, Object o2, byte[] bytes2, Stat stat2) -> {
                                     if (KeeperException.Code.OK.intValue() == rc2) {
                                         try {
-                                            BookieServiceInfo bookieServiceInfo =
-                                                    deserializeBookieServiceInfo(bookieId, bytes2);
                                             Versioned<BookieServiceInfo> result =
-                                                    new Versioned<>(bookieServiceInfo,
-                                                            new LongVersion(stat2.getCversion()));
-                                            log.info("Update BookieInfoCache (readonly bookie) {} -> {}",
-                                                    bookieId, result.getValue());
-                                            readOnlyBookieInfo.put(bookieId, result);
+                                                    updateBookieInfo(bookieId, true, bytes, stat);
                                             promise.complete(result);
                                         } catch (IOException ex) {
                                             log.error("Cannot update BookieInfo for ", ex);
@@ -330,18 +335,15 @@ public class ZKRegistrationClient implements RegistrationClient {
         CompletableFuture<Versioned<BookieServiceInfo>> promise = new CompletableFuture<>();
         // not found, looking for a readonly bookie
         zk.getData(pathAsReadonly, bookieServiceInfoCacheInvalidation,
-                (int rc2, String path2, Object o2, byte[] bytes2, Stat stat2) -> {
-                    if (KeeperException.Code.OK.intValue() == rc2) {
+                (int rc, String path, Object o, byte[] bytes, Stat stat) -> {
+                    if (KeeperException.Code.OK.intValue() == rc) {
                         try {
-                            BookieServiceInfo bookieServiceInfo = deserializeBookieServiceInfo(bookieId, bytes2);
                             Versioned<BookieServiceInfo> result =
-                                    new Versioned<>(bookieServiceInfo, new LongVersion(stat2.getCversion()));
-                            log.info("Update BookieInfoCache (readonly bookie) {} -> {}", bookieId, result.getValue());
-                            readOnlyBookieInfo.put(bookieId, result);
+                                    updateBookieInfo(bookieId, true, bytes, stat);
                             promise.complete(result);
                         } catch (IOException ex) {
                             log.error("Cannot update BookieInfo for ", ex);
-                            promise.completeExceptionally(KeeperException.create(KeeperException.Code.get(rc2), path2)
+                            promise.completeExceptionally(KeeperException.create(KeeperException.Code.get(rc), path)
                                     .initCause(ex));
                             return;
                         }
@@ -361,11 +363,8 @@ public class ZKRegistrationClient implements RegistrationClient {
                 (int rc, String path, Object o, byte[] bytes, Stat stat) -> {
                     if (KeeperException.Code.OK.intValue() == rc) {
                         try {
-                            BookieServiceInfo bookieServiceInfo = deserializeBookieServiceInfo(bookieId, bytes);
-                            Versioned<BookieServiceInfo> result = new Versioned<>(bookieServiceInfo,
-                                    new LongVersion(stat.getCversion()));
-                            log.info("Update BookieInfoCache (writable bookie) {} -> {}", bookieId, result.getValue());
-                            writableBookieInfo.put(bookieId, result);
+                            Versioned<BookieServiceInfo> result =
+                                    updateBookieInfo(bookieId, false, bytes, stat);
                             promise.complete(result);
                         } catch (IOException ex) {
                             log.error("Cannot update BookieInfo for ", ex);
