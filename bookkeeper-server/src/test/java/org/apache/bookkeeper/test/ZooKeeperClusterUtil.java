@@ -134,9 +134,13 @@ public class ZooKeeperClusterUtil implements ZooKeeperCluster {
     public void killCluster() throws Exception {
         quorumUtil.tearDown();
     }
+    @Override
+    public void sleepCluster(int time, TimeUnit timeUnit) throws InterruptedException, IOException {
+        throw new UnsupportedOperationException("sleepServer operation is not supported for ZooKeeperClusterUtil");
+    }
 
     @Override
-    public void sleepCluster(int time, TimeUnit timeUnit, CountDownLatch l) throws InterruptedException, IOException {
+    public void sleepCluster(CountDownLatch l) throws InterruptedException, IOException {
         throw new UnsupportedOperationException("sleepServer operation is not supported for ZooKeeperClusterUtil");
     }
 }

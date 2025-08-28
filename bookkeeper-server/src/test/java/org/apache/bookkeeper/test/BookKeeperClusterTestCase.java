@@ -226,6 +226,11 @@ public abstract class BookKeeperClusterTestCase {
         }
     }
 
+    protected void sleepZKCluster(final CountDownLatch l)
+            throws InterruptedException, IOException {
+        zkUtil.sleepCluster(l);
+    }
+
     @After
     public void clearMetricsThreadRegistry() throws Exception {
         ThreadRegistry.clear();

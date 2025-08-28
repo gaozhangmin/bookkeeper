@@ -55,6 +55,7 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.data.Stat;
+import org.awaitility.Awaitility;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -392,8 +393,10 @@ public class BookieAutoRecoveryTest extends BookKeeperClusterTestCase {
         startNewBookie();
 
         getAuditor(10, TimeUnit.SECONDS).submitAuditTask().get(); // ensure auditor runs
-
-        assertTrue("Should be marked as underreplicated", latch.await(5, TimeUnit.SECONDS));
+        CountDownLatch finalLatch = latch;
+        Awaitility.await().untilAsserted(() -> {
+            assertTrue("Should be marked as underreplicated", finalLatch.await(5, TimeUnit.SECONDS));
+        });
         latch = new CountDownLatch(1);
         Stat s = watchUrLedgerNode(urZNode, latch); // should be marked as replicated
         if (s != null) {
