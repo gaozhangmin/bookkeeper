@@ -20,6 +20,12 @@
  */
 package org.apache.bookkeeper.client;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.ADD_OP;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.CREATE_OP;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.ERROR_CODE_SCOPE;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.OPEN_OP;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.REQUEST_ERROR;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.REQUEST_SCOPE;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.WRITE_DELAYED_DUE_TO_NOT_ENOUGH_FAULT_DOMAINS;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.WRITE_TIMED_OUT_DUE_TO_NOT_ENOUGH_FAULT_DOMAINS;
 import static org.apache.bookkeeper.common.concurrent.FutureUtils.result;
@@ -52,6 +58,7 @@ import org.apache.bookkeeper.client.api.WriteFlag;
 import org.apache.bookkeeper.client.api.WriteHandle;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieId;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
@@ -1302,4 +1309,67 @@ public class BookKeeperTest extends BookKeeperClusterTestCase {
         }
     }
 
+    @Test
+    public void testErrorCodeMetricsWithActualLedgerOperations() throws Exception {
+        // Create a stats provider to capture metrics
+        TestStatsProvider statsProvider = new TestStatsProvider();
+
+        // Create a client configuration with our stats provider
+        ClientConfiguration conf = new ClientConfiguration();
+        conf.setMetadataServiceUri(zkUtil.getMetadataServiceUri());
+
+        // Create a bookkeeper client with our stats provider
+        BookKeeperTestClient bk = new BookKeeperTestClient(conf, statsProvider);
+
+        // Test 1: Try to open a non-existent ledger to trigger NoSuchLedgerExistsException
+        long nonExistentLedgerId = 999999L;
+        try {
+            bk.openLedger(nonExistentLedgerId, digestType, "testPasswd".getBytes());
+            fail("Should have thrown an exception");
+        } catch (Exception e) {
+            // Expected exception
+        }
+        // Verify that error metrics were recorded
+        // We can check if the stats provider has recorded any op stats loggers
+        Counter openLedgrError =  bk.getStatsLogger().scopeLabel(REQUEST_SCOPE, OPEN_OP)
+                .scopeLabel(ERROR_CODE_SCOPE,
+                        BKException.getMessage(BKException.Code.NoSuchLedgerExistsOnMetadataServerException)
+                ).getCounter(REQUEST_ERROR);
+        assertEquals(1, openLedgrError.get().longValue());
+
+        try {
+            LedgerHandle lh = bk.createLedgerAdv(1, 20,
+                    1, 1, DigestType.CRC32, "".getBytes(), null);
+            fail("Should have thrown an exception");
+        } catch (Exception e) {
+        }
+
+        // Verify that error metrics were recorded
+        // We can check if the stats provider has recorded any op stats loggers
+        Counter createLedgerError =  bk.getStatsLogger().scopeLabel(REQUEST_SCOPE, CREATE_OP)
+                .scopeLabel(ERROR_CODE_SCOPE,
+                        BKException.getMessage(BKException.Code.NotEnoughBookiesException)
+                ).getCounter(REQUEST_ERROR);
+        assertEquals(1, createLedgerError.get().longValue());
+
+
+        // Test 4: Test write failure after cluster is stopped
+        try {
+            LedgerHandle writeLh = bk.createLedger(digestType, "testPasswd".getBytes());
+            stopBKCluster();
+            writeLh.addEntry("test data".getBytes());
+            fail("Should have thrown an exception");
+        } catch (Exception e) {
+            // Expected exception
+        }
+
+        // Verify write failure metrics
+        Counter writeFailureError = bk.getStatsLogger().scopeLabel(REQUEST_SCOPE, ADD_OP)
+                .scopeLabel(ERROR_CODE_SCOPE,
+                        BKException.getMessage(BKException.Code.NotEnoughBookiesException)
+                ).getCounter(REQUEST_ERROR);
+        assertEquals(1, writeFailureError.get().longValue());
+
+        bk.close();
+    }
 }

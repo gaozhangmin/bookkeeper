@@ -22,6 +22,9 @@ package org.apache.bookkeeper.client.impl;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.CATEGORY_CLIENT;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.CLIENT_SCOPE;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeperClientStats;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
@@ -159,6 +162,9 @@ public class BookKeeperClientStatsImpl implements BookKeeperClientStats {
     )
     private final Counter writeTimedOutDueToNotEnoughFaultDomains;
 
+    private final Map<String, StatsLogger> apiKeysToStatsLogger = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Counter>> apiErrorToStatsLogger = new ConcurrentHashMap<>();
+
 
     public BookKeeperClientStatsImpl(StatsLogger stats) {
         this.stats = stats;
@@ -195,6 +201,20 @@ public class BookKeeperClientStatsImpl implements BookKeeperClientStats {
     @Override
     public OpStatsLogger getCreateOpLogger() {
         return createOpLogger;
+    }
+    private StatsLogger getApiKeyStatsLogger(final String apiKey) {
+        return apiKeysToStatsLogger.computeIfAbsent(apiKey,
+                __ -> stats.scopeLabel(REQUEST_SCOPE, apiKey)
+        );
+    }
+    public Counter getRequestErrorsCounter(final String apiKey, final int rc) {
+        String errorName = BKException.getMessage(rc);
+        Map<String, Counter> errorLoggers =
+                apiErrorToStatsLogger.computeIfAbsent(apiKey, __ -> new ConcurrentHashMap<>());
+        return errorLoggers.computeIfAbsent(errorName,
+                __ -> getApiKeyStatsLogger(apiKey).scopeLabel(ERROR_CODE_SCOPE, errorName)
+                        .getCounter(REQUEST_ERROR)
+        );
     }
     @Override
     public OpStatsLogger getOpenOpLogger() {

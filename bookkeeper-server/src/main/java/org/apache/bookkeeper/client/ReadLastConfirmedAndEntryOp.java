@@ -533,6 +533,8 @@ class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.ReadEnt
         LedgerEntry entry;
         cancelSpeculativeTask(true);
         if (BKException.Code.OK != rc) {
+            clientCtx.getClientStats()
+                    .getRequestErrorsCounter(BookKeeperClientStats.READ_LAC_OP, rc).inc();
             clientCtx.getClientStats().getReadLacAndEntryOpLogger()
                 .registerFailedEvent(latencyMicros, TimeUnit.MICROSECONDS);
             entry = null;

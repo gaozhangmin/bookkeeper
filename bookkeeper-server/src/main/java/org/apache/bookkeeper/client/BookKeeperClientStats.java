@@ -31,11 +31,15 @@ import org.apache.bookkeeper.stats.StatsLogger;
  * List of constants for defining client stats names.
  */
 public interface BookKeeperClientStats {
+    String ERROR_CODE_SCOPE = "error_code";
+    String REQUEST_SCOPE = "request";
+
     String CATEGORY_CLIENT = "client";
 
     String CLIENT_SCOPE = "bookkeeper_client";
 
     // Metadata Operations
+    String REQUEST_ERROR = "REQUEST_ERROR";
 
     String CREATE_OP = "LEDGER_CREATE";
     String DELETE_OP = "LEDGER_DELETE";
@@ -93,6 +97,8 @@ public interface BookKeeperClientStats {
     String ACTIVE_NON_TLS_CHANNEL_COUNTER = "ACTIVE_NON_TLS_CHANNEL_COUNTER";
     String ACTIVE_TLS_CHANNEL_COUNTER = "ACTIVE_TLS_CHANNEL_COUNTER";
     String FAILED_CONNECTION_COUNTER = "FAILED_CONNECTION_COUNTER";
+    String TOO_MANY_CONNECTION_COUNTER = "TOO_MANY_CONNECTION_COUNTER";
+
     String FAILED_TLS_HANDSHAKE_COUNTER = "FAILED_TLS_HANDSHAKE_COUNTER";
 
     // placementpolicy stats
@@ -106,6 +112,7 @@ public interface BookKeeperClientStats {
     String BOOKIE_LABEL = "bookie";
 
     OpStatsLogger getCreateOpLogger();
+    Counter getRequestErrorsCounter(String apiKey, int rc);
     OpStatsLogger getOpenOpLogger();
     OpStatsLogger getDeleteOpLogger();
     OpStatsLogger getRecoverOpLogger();

@@ -29,12 +29,12 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeperClientStats;
 import org.apache.bookkeeper.client.BookieInfoReader.BookieInfo;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.net.BookieId;
-import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.AvailabilityOfEntriesOfLedger;
 import org.apache.bookkeeper.util.ByteBufList;
 import org.apache.bookkeeper.util.MathUtils;
@@ -168,22 +168,25 @@ public class BookkeeperInternalCallbacks {
 
         final GenericCallback<T> cb;
         final int successRc;
-        final OpStatsLogger statsLogger;
         final long startTime;
+        final BookKeeperClientStats clientStats;
 
-        public TimedGenericCallback(GenericCallback<T> cb, int successRc, OpStatsLogger statsLogger) {
+        public TimedGenericCallback(GenericCallback<T> cb, int successRc, BookKeeperClientStats clientStats) {
             this.cb = cb;
             this.successRc = successRc;
-            this.statsLogger = statsLogger;
+            this.clientStats = clientStats;
             this.startTime = MathUtils.nowInNano();
         }
 
         @Override
         public void operationComplete(int rc, T result) {
             if (successRc == rc) {
-                statsLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
+                clientStats.getRecoverOpLogger()
+                        .registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
             } else {
-                statsLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
+                clientStats.getRequestErrorsCounter(BookKeeperClientStats.RECOVER_OP, rc).inc();
+                clientStats.getRecoverOpLogger()
+                        .registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
             }
             cb.operationComplete(rc, result);
         }

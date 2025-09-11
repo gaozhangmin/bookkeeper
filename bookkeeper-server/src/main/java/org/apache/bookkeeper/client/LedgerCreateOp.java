@@ -267,6 +267,7 @@ class LedgerCreateOp {
     private void createComplete(int rc, LedgerHandle lh) {
         // Opened a new ledger
         if (BKException.Code.OK != rc) {
+            clientStats.getRequestErrorsCounter(BookKeeperClientStats.CREATE_OP, rc).inc();
             createOpLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
         } else {
             createOpLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);

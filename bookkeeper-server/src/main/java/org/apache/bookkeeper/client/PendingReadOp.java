@@ -155,6 +155,8 @@ class PendingReadOp extends ReadOpBase implements ReadEntryCallback  {
                             + "Heard from {} : bitset = {}, Error = '{}'. First unread entry is ({}, rc = {})",
                     lh.getId(), startEntryId, endEntryId, sentToHosts, heardFromHosts, heardFromHostsBitSet,
                     BKException.getMessage(code), firstUnread, firstRc);
+            clientCtx.getClientStats()
+                    .getRequestErrorsCounter(BookKeeperClientStats.READ_OP, code).inc();
             clientCtx.getClientStats().getReadOpLogger().registerFailedEvent(latencyNanos, TimeUnit.NANOSECONDS);
             // release the entries
             seq.forEach(LedgerEntryRequest::close);

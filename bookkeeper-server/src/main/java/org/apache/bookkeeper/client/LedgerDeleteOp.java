@@ -47,6 +47,7 @@ class LedgerDeleteOp {
     final Object ctx;
     final long startTime;
     final OpStatsLogger deleteOpLogger;
+    final BookKeeperClientStats clientStats;
 
     /**
      * Constructor.
@@ -68,6 +69,7 @@ class LedgerDeleteOp {
         this.ctx = ctx;
         this.startTime = MathUtils.nowInNano();
         this.deleteOpLogger = clientStats.getDeleteOpLogger();
+        this.clientStats = clientStats;
     }
 
     /**
@@ -78,12 +80,14 @@ class LedgerDeleteOp {
         // When this completes, it will invoke the callback method below.
         bk.getLedgerManager().removeLedgerMetadata(ledgerId, Version.ANY)
             .whenCompleteAsync((ignore, exception) -> {
+                    int rc = BKException.getExceptionCode(exception);
                     if (exception != null) {
+                        clientStats.getRequestErrorsCounter(BookKeeperClientStats.DELETE_OP, rc).inc();
                         deleteOpLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
                     } else {
                         deleteOpLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
                     }
-                    cb.deleteComplete(BKException.getExceptionCode(exception), this.ctx);
+                    cb.deleteComplete(rc, this.ctx);
                 }, bk.getMainWorkerPool().chooseThread(ledgerId));
     }
 

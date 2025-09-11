@@ -27,7 +27,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 
@@ -44,6 +46,7 @@ import org.apache.bookkeeper.client.api.LedgerEntry;
 import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieId;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.junit.Test;
@@ -257,7 +260,10 @@ public class TestParallelRead extends BookKeeperClusterTestCase {
         BookKeeperClientStats bookKeeperClientStats = mock(BookKeeperClientStats.class);
         doReturn(bookKeeperClientStats).when(clientContext).getClientStats();
         OpStatsLogger opStatsLogger = mock(OpStatsLogger.class);
+        Counter counter = mock(Counter.class);
         doReturn(opStatsLogger).when(bookKeeperClientStats).getReadOpLogger();
+        doReturn(counter).when(bookKeeperClientStats)
+                .getRequestErrorsCounter(anyString(), anyInt());
         doReturn(ledgerMetadata).when(lh).getLedgerMetadata();
         doReturn(2).when(ledgerMetadata).getWriteQuorumSize();
         doReturn(1).when(ledgerMetadata).getAckQuorumSize();

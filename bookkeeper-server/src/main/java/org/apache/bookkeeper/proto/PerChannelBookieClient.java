@@ -315,6 +315,11 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         help = "the number of failed tls handshakes"
     )
     private final Counter failedTlsHandshakeCounter;
+    @StatsDoc(
+            name = BookKeeperClientStats.TOO_MANY_CONNECTION_COUNTER,
+            help = "the number of connections failed due to too many connections"
+    )
+    private final Counter tooManyConnectionCounter;
 
     private final boolean useV2WireProtocol;
     private final boolean preserveMdcForTaskExecution;
@@ -443,6 +448,8 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         activeTlsChannelCounter = statsLogger.getCounter(BookKeeperClientStats.ACTIVE_TLS_CHANNEL_COUNTER);
         failedConnectionCounter = statsLogger.getCounter(BookKeeperClientStats.FAILED_CONNECTION_COUNTER);
         failedTlsHandshakeCounter = statsLogger.getCounter(BookKeeperClientStats.FAILED_TLS_HANDSHAKE_COUNTER);
+        tooManyConnectionCounter = statsLogger.getCounter(BookKeeperClientStats.TOO_MANY_CONNECTION_COUNTER);
+
 
         this.pcbcPool = pcbcPool;
 
@@ -1187,6 +1194,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         }
 
         if (allowFastFail && !isWritable) {
+            tooManyConnectionCounter.inc();
             LOG.warn("Operation {} failed: TooManyRequestsException",
                     StringUtils.requestToString(request));
 

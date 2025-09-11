@@ -384,6 +384,8 @@ class PendingAddOp implements WriteCallback {
 
         long latencyNanos = MathUtils.elapsedNanos(requestTimeNanos);
         if (rc != BKException.Code.OK) {
+            clientCtx.getClientStats()
+                    .getRequestErrorsCounter(BookKeeperClientStats.ADD_OP, rc).inc();
             clientCtx.getClientStats().getAddOpLogger().registerFailedEvent(latencyNanos, TimeUnit.NANOSECONDS);
             LOG.error("Write of ledger entry to quorum failed: L{} E{}",
                       lh.getId(), entryId);

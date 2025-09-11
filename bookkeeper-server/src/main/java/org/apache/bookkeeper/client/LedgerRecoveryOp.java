@@ -155,6 +155,12 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
             clientCtx.getClientStats().getRecoverReadCountLogger().registerSuccessfulValue(readCount.get());
             promise.complete(lh);
         } else {
+            clientCtx.getClientStats()
+                    .getRequestErrorsCounter(BookKeeperClientStats.LEDGER_RECOVER_ADD_ENTRIES, rc)
+                    .addCount(writeCount.get());
+            clientCtx.getClientStats()
+                    .getRequestErrorsCounter(BookKeeperClientStats.LEDGER_RECOVER_READ_ENTRIES, rc)
+                    .addCount(readCount.get());
             clientCtx.getClientStats().getRecoverAddCountLogger().registerFailedValue(writeCount.get());
             clientCtx.getClientStats().getRecoverReadCountLogger().registerFailedValue(readCount.get());
             promise.completeExceptionally(BKException.create(rc));

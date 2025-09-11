@@ -260,7 +260,7 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(
             finalCb,
             BKException.Code.OK,
-            clientCtx.getClientStats().getRecoverOpLogger());
+            clientCtx.getClientStats());
 
         MetadataUpdateLoop.NeedsUpdatePredicate needsUpdate =
             (metadata) -> metadata.getState() == LedgerMetadata.State.OPEN;

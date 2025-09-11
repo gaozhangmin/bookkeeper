@@ -59,6 +59,8 @@ class ListenerBasedPendingReadOp extends PendingReadOp {
                 // callback with completed entry
                 entry = new LedgerEntry(request.entryImpl);
             } else {
+                clientCtx.getClientStats()
+                        .getRequestErrorsCounter(BookKeeperClientStats.READ_OP, request.getRc()).inc();
                 clientCtx.getClientStats().getReadOpLogger()
                     .registerFailedEvent(latencyNanos, TimeUnit.NANOSECONDS);
                 entry = null;

@@ -60,6 +60,7 @@ class LedgerOpenOp {
     boolean administrativeOpen = false;
     long startTime;
     final OpStatsLogger openOpLogger;
+    final BookKeeperClientStats clientStats;
 
     final DigestType suggestedDigestType;
     final boolean enableDigestAutodetection;
@@ -85,6 +86,7 @@ class LedgerOpenOp {
         this.enableDigestAutodetection = bk.getConf().getEnableDigestTypeAutodetection();
         this.suggestedDigestType = digestType;
         this.openOpLogger = clientStats.getOpenOpLogger();
+        this.clientStats = clientStats;
     }
 
     public LedgerOpenOp(BookKeeper bk, BookKeeperClientStats clientStats,
@@ -99,6 +101,7 @@ class LedgerOpenOp {
         this.enableDigestAutodetection = false;
         this.suggestedDigestType = bk.conf.getBookieRecoveryDigestType();
         this.openOpLogger = clientStats.getOpenOpLogger();
+        this.clientStats = clientStats;
     }
 
     /**
@@ -249,6 +252,7 @@ class LedgerOpenOp {
 
     void openComplete(int rc, LedgerHandle lh) {
         if (BKException.Code.OK != rc) {
+            clientStats.getRequestErrorsCounter(BookKeeperClientStats.OPEN_OP, rc).inc();
             openOpLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
         } else {
             openOpLogger.registerSuccessfulEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);
