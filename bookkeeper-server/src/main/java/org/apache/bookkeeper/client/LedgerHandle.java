@@ -2272,14 +2272,12 @@ public class LedgerHandle implements WriteHandle {
                                 newEnsemble = getCurrentEnsemble();
                                 replaced = EnsembleUtils.diffEnsemble(origEnsemble, newEnsemble);
                                 LOG.info("New Ensemble: {} for ledger: {}", newEnsemble, ledgerId);
-                                // Since changingEnsemble is true, processing in #sendAddSuccessCallbacks() is skipped.
-                                unsetSuccessAndSendWriteRequest(newEnsemble, replaced);
+
                                 changingEnsemble = false;
                             }
                         }
-                        if (newEnsemble != null) {
-                            // After changingEnsemble is changed to false, call #sendAddSuccessCallbacks().
-                            sendAddSuccessCallbacks();
+                        if (newEnsemble != null) { // unsetSuccess outside of lock
+                            unsetSuccessAndSendWriteRequest(newEnsemble, replaced);
                         }
                     }
             }, clientCtx.getMainWorkerPool().chooseThread(ledgerId));
