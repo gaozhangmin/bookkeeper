@@ -88,6 +88,16 @@ public class BookKeeperClientStatsImpl implements BookKeeperClientStats {
     )
     private final OpStatsLogger addOpLogger;
     @StatsDoc(
+            name = ADD_ENTRY_BYTES,
+            help = "adding entries bytes"
+    )
+    private final Counter addEntryBytesCounter;
+    @StatsDoc(
+            name = ADD_ENTRY_BYTES_RETRY,
+            help = "adding entries bytes retry"
+    )
+    private final Counter addEntryBytesRetryCounter;
+    @StatsDoc(
         name = FORCE_OP,
         help = "operation stats of force requests"
     )
@@ -177,6 +187,8 @@ public class BookKeeperClientStatsImpl implements BookKeeperClientStats {
         this.readLacAndEntryOpLogger = stats.getOpStatsLogger(READ_LAST_CONFIRMED_AND_ENTRY);
         this.readLacAndEntryRespLogger = stats.getOpStatsLogger(READ_LAST_CONFIRMED_AND_ENTRY_RESPONSE);
         this.addOpLogger = stats.getOpStatsLogger(ADD_OP);
+        this.addEntryBytesCounter = stats.getCounter(ADD_ENTRY_BYTES);
+        this.addEntryBytesRetryCounter = stats.getCounter(ADD_ENTRY_BYTES_RETRY);
         this.forceOpLogger = stats.getOpStatsLogger(FORCE_OP);
         this.addOpUrCounter = stats.getCounter(ADD_OP_UR);
         this.writeLacOpLogger = stats.getOpStatsLogger(WRITE_LAC_OP);
@@ -243,6 +255,14 @@ public class BookKeeperClientStatsImpl implements BookKeeperClientStats {
     @Override
     public OpStatsLogger getAddOpLogger() {
         return addOpLogger;
+    }
+    @Override
+    public Counter getAddEntryBytesCounter() {
+        return addEntryBytesCounter;
+    }
+    @Override
+    public Counter getAddEntryBytesRetryCounter() {
+        return addEntryBytesRetryCounter;
     }
     @Override
     public OpStatsLogger getForceOpLogger() {

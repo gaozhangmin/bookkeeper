@@ -210,6 +210,7 @@ class PendingAddOp implements WriteCallback {
         }
 
         sendWriteRequest(ensemble, bookieIndex);
+        clientCtx.getClientStats().getAddEntryBytesRetryCounter().addCount(entryLength);
     }
 
     /**
@@ -243,6 +244,7 @@ class PendingAddOp implements WriteCallback {
         // Iterate over set and trigger the sendWriteRequests
         for (int i = 0; i < lh.distributionSchedule.getWriteQuorumSize(); i++) {
             sendWriteRequest(ensemble, lh.distributionSchedule.getWriteSetBookieIndex(entryId, i));
+            clientCtx.getClientStats().getAddEntryBytesCounter().addCount(entryLength);
         }
     }
 

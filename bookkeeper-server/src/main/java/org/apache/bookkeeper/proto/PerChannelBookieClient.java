@@ -18,6 +18,7 @@
  */
 package org.apache.bookkeeper.proto;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.READ_ENTRY_BYTES;
 import static org.apache.bookkeeper.client.LedgerHandle.INVALID_ENTRY_ID;
 
 import com.google.common.base.Joiner;
@@ -88,8 +89,10 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiPredicate;
+import java.util.function.Consumer;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLPeerUnverifiedException;
+import lombok.Setter;
 import lombok.SneakyThrows;
 import org.apache.bookkeeper.auth.BookKeeperPrincipal;
 import org.apache.bookkeeper.auth.ClientAuthProvider;
@@ -320,7 +323,11 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
             help = "the number of connections failed due to too many connections"
     )
     private final Counter tooManyConnectionCounter;
-
+    @StatsDoc(
+            name = READ_ENTRY_BYTES,
+            help = "adding entries bytes"
+    )
+    private final Counter readEntryBytesCounter;
     private final boolean useV2WireProtocol;
     private final boolean preserveMdcForTaskExecution;
 
@@ -356,6 +363,10 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
     private final SecurityHandlerFactory shFactory;
     private volatile boolean isWritable = true;
     private long lastBookieUnavailableLogTimestamp = 0;
+    @Setter
+    private static Optional<Consumer<Integer>> writeEntryRateLimiter = Optional.empty();
+    @Setter
+    private static Optional<Consumer<Integer>> readEntryRateLimiter = Optional.empty();
 
     public PerChannelBookieClient(OrderedExecutor executor, EventLoopGroup eventLoopGroup,
                                   BookieId addr, BookieAddressResolver bookieAddressResolver) throws SecurityException {
@@ -449,7 +460,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         failedConnectionCounter = statsLogger.getCounter(BookKeeperClientStats.FAILED_CONNECTION_COUNTER);
         failedTlsHandshakeCounter = statsLogger.getCounter(BookKeeperClientStats.FAILED_TLS_HANDSHAKE_COUNTER);
         tooManyConnectionCounter = statsLogger.getCounter(BookKeeperClientStats.TOO_MANY_CONNECTION_COUNTER);
-
+        readEntryBytesCounter = statsLogger.getCounter(BookKeeperClientStats.READ_ENTRY_BYTES);
 
         this.pcbcPool = pcbcPool;
 
@@ -1226,12 +1237,31 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
                 }
             });
             channel.writeAndFlush(request, promise);
+            acquireOutBytes(request);
         } catch (Throwable e) {
             LOG.warn("Operation {} failed", StringUtils.requestToString(request), e);
             errorOut(key);
             if (cleanupActionFailedBeforeWrite != null) {
                 cleanupActionFailedBeforeWrite.run();
             }
+        }
+    }
+
+    private static void acquireOutBytes(Object request) {
+        int bytes;
+        if (request instanceof BookieProtocol.ParsedAddRequest) {
+            bytes = ((BookieProtocol.ParsedAddRequest) request).data.readableBytes();
+        } else if (request instanceof BookkeeperProtocol.Request) {
+            bytes = ((BookkeeperProtocol.Request) request).getSerializedSize();
+        } else if (request instanceof ByteBufList) {
+            bytes = ((ByteBufList) request).readableBytes();
+        } else if (request instanceof ByteBuf) {
+            bytes = ((ByteBuf) request).readableBytes();
+        } else {
+            bytes = 0;
+        }
+        if (bytes > 0) {
+            writeEntryRateLimiter.ifPresent(rateLimiter -> rateLimiter.accept(bytes));
         }
     }
 
@@ -1961,6 +1991,10 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
                                                            ledgerId, entryId,
                                                            buffer, originalCtx);
                         key.release();
+                        if (buffer != null) {
+                            readEntryBytesCounter.addCount(buffer.readableBytes());
+                            readEntryRateLimiter.ifPresent(limiter -> limiter.accept(buffer.readableBytes()));
+                        }
                     }
                 };
         }

@@ -52,9 +52,12 @@ public interface BookKeeperClientStats {
     // Data Operations
 
     String ADD_OP = "ADD_ENTRY";
+    String ADD_ENTRY_BYTES = "ADD_ENTRY_BYTES";
+    String ADD_ENTRY_BYTES_RETRY = "ADD_ENTRY_BYTES_RETRY";
     String ADD_OP_UR = "ADD_ENTRY_UR"; // Under Replicated during AddEntry.
     String FORCE_OP = "FORCE"; // Number of force ledger operations
     String READ_OP = "READ_ENTRY";
+    String READ_ENTRY_BYTES = "READ_ENTRY_BYTES";
     // Corrupted entry (Digest Mismatch/ Under Replication) detected during ReadEntry
     String READ_OP_DM = "READ_ENTRY_DM";
     String WRITE_LAC_OP = "WRITE_LAC";
@@ -120,6 +123,8 @@ public interface BookKeeperClientStats {
     OpStatsLogger getReadLacAndEntryOpLogger();
     OpStatsLogger getReadLacAndEntryRespLogger();
     OpStatsLogger getAddOpLogger();
+    Counter getAddEntryBytesCounter();
+    Counter getAddEntryBytesRetryCounter();
     OpStatsLogger getForceOpLogger();
     OpStatsLogger getWriteLacOpLogger();
     OpStatsLogger getReadLacOpLogger();
