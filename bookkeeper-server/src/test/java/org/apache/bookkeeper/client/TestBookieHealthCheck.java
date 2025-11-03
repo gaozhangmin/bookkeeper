@@ -22,6 +22,7 @@ package org.apache.bookkeeper.client;
 
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.junit.Assert;
@@ -90,6 +91,45 @@ public class TestBookieHealthCheck extends BookKeeperClusterTestCase {
 
         // the bookie should not be quarantined anymore
         Assert.assertFalse(bkc.bookieWatcher.quarantinedBookies.asMap().containsKey(bookieToQuarantine));
+    }
+
+    @Test
+    public void testBkQuarantineRatio() throws Exception {
+        ClientConfiguration config = new ClientConfiguration(baseClientConf);
+        config.setBookieQuarantineRatioTotal(0.5);
+        config.setBookieQuarantineTime(Integer.MAX_VALUE, TimeUnit.SECONDS);
+        BookKeeperTestClient bkc = new BookKeeperTestClient(config);
+
+        for (int i = 0; i < 10; i++) {
+            LedgerHandle lh = bkc.createLedger(4, 4, 4, BookKeeper.DigestType.CRC32, new byte[] {});
+            lh.getLedgerMetadata().getAllEnsembles().values()
+                    .forEach((e) ->
+                            e.forEach((bookie) -> {
+                                try {
+                                    sleepBookie(bookie, config.getAddEntryTimeout() * 2).await();
+                                } catch (Exception ex) {
+                                    throw new RuntimeException(ex);
+                                }
+                            }));
+
+            byte[] tempMsg = "temp-msg".getBytes();
+            for (int j = 0; j < 10; j++) {
+                lh.asyncAddEntry(tempMsg, new AddCallback() {
+                    @Override
+                    public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
+                        // no-op
+                    }
+                }, null);
+            }
+            // make sure the add entry timeouts
+            Thread.sleep(config.getAddEntryTimeout() * 2 * 1000);
+            // make sure the health check runs once after the timeout
+            Thread.sleep(config.getBookieHealthCheckIntervalSeconds() * 2 * 1000);
+
+            Assert.assertEquals(2, bkc.bookieWatcher.quarantinedBookies.size());
+        }
+
+        bkc.close();
     }
 
     @Test

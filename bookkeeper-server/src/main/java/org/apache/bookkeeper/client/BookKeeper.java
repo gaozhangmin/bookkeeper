@@ -118,7 +118,7 @@ public class BookKeeper implements org.apache.bookkeeper.client.api.BookKeeper {
     private final StatsLogger statsLogger;
     private final BookKeeperClientStats clientStats;
     private final double bookieQuarantineRatio;
-
+    private final double bookieQuarantineRatioTotal;
     // whether the event loop group is one we created, or is owned by whoever
     // instantiated us
     boolean ownEventLoopGroup = false;
@@ -535,8 +535,8 @@ public class BookKeeper implements org.apache.bookkeeper.client.api.BookKeeper {
         }
         this.ledgerManager = new CleanupLedgerManager(ledgerManagerFactory.newLedgerManager());
         this.ledgerIdGenerator = ledgerManagerFactory.newLedgerIdGenerator();
-
         this.bookieQuarantineRatio = conf.getBookieQuarantineRatio();
+        this.bookieQuarantineRatioTotal = conf.getBookieQuarantineRatioTotal();
         scheduleBookieHealthCheckIfEnabled(conf);
     }
 
@@ -565,6 +565,7 @@ public class BookKeeper implements org.apache.bookkeeper.client.api.BookKeeper {
         bookieClient = null;
         allocator = UnpooledByteBufAllocator.DEFAULT;
         bookieQuarantineRatio = 1.0;
+        bookieQuarantineRatioTotal = 1.0;
     }
 
     protected EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(ClientConfiguration conf,
@@ -630,8 +631,21 @@ public class BookKeeper implements org.apache.bookkeeper.client.api.BookKeeper {
             return;
         }
 
+        int allBookies;
+        try {
+            allBookies = bookieWatcher.getAllBookies().size();
+        } catch (BKException e) {
+            LOG.error("Cannot get the number of all bookies", e);
+            return;
+        }
+        if (allBookies == 0) {
+            LOG.warn("No bookies found while health check!");
+            return;
+        }
+
         for (BookieId faultyBookie : faultyBookies) {
-            if (Math.random() <= bookieQuarantineRatio) {
+            if (Math.random() <= bookieQuarantineRatio
+                    && (double) bookieWatcher.quarantinedBookies.size() / allBookies < bookieQuarantineRatioTotal) {
                 bookieWatcher.quarantineBookie(faultyBookie);
                 statsLogger.getCounter(BookKeeperServerStats.BOOKIE_QUARANTINE).inc();
             } else {
