@@ -56,8 +56,9 @@ print(f'new config: {default_cluster_config}')
 if None is default_cluster_config or not default_cluster_config:
     print('error, new cluster config is empty')
     sys.exit(1)
-
-bk_conf_path = '/home/web_server/bookkeeper/apps/conf/generated_bk_server.conf'
+bk_conf_path = '/home/web_server/bookkeeper/conf/generated_bk_server.conf'
+if 'autorecovery' in cluster_name:
+    bk_conf_path = '/home/web_server/bk-autorecovery/apps/conf/generated_bk_server.conf'
 try:
     with open(bk_conf_path, 'w') as f:
         f.write('# =========== kop generated config ===========\n')

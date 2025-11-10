@@ -39,7 +39,7 @@ rm jdk-17_linux-x64_bin.tar.gz
 if [ -L "/home/web_server/bk-autorecovery/apps" ]; then
     rm /home/web_server/bk-autorecovery/apps
 fi
-ln -s /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bk-autorecovery /home/web_server/bk-autorecovery/apps
+ln -s /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bookkeeper-server /home/web_server/bk-autorecovery/apps
 
 if [ -d "/home/web_server/bk-autorecovery/supervisord" ]; then
     rm /home/web_server/bk-autorecovery/supervisord
@@ -47,7 +47,7 @@ fi
 ln -s /data/web_server/supervisord/conf /home/web_server/bk-autorecovery/supervisord
 
 ## save ENV vars
-echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bk-autorecovery/conf/kwai_runtime.sh
+echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bookkeeper-server/conf/kwai_runtime.sh
 
 ## set directMem
 directMem="5g"
@@ -73,8 +73,8 @@ numa='numactl --interleave all'
 which cgstart > /dev/null 2>&1
 if [[ $? != 0 ]]; then
   echo "start bookkeeper without cgstart"
-  $numa bin/bookkeeper bk-autorecovery
+  $numa bin/bookkeeper autorecovery
 else
   echo "start bookkeeper with cgstart"
-  $numa cgstart bin/bookkeeper bk-autorecovery
+  $numa cgstart bin/bookkeeper autorecovery
 fi
