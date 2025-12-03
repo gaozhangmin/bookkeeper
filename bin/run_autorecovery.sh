@@ -73,8 +73,8 @@ numa='numactl --interleave all'
 which cgstart > /dev/null 2>&1
 if [[ $? != 0 ]]; then
   echo "start bookkeeper without cgstart"
-  $numa bin/bookkeeper autorecovery
+  exec $numa bin/bookkeeper autorecovery
 else
   echo "start bookkeeper with cgstart"
-  $numa cgstart bin/bookkeeper autorecovery
+  exec $numa cgstart bin/bookkeeper autorecovery
 fi

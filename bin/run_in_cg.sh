@@ -74,4 +74,4 @@ export BOOKIE_LOG_DIR="/data/logs/$KWS_SERVICE_NAME"
 ## set rocksdb jni dir, default is /tmp
 export ROCKSDB_SHAREDLIB_DIR="/home/web_server/bookkeeper/apps"
 
-cgexec -g "cpu,memory:$cg_name" bin/bookkeeper bookie
+exec cgexec -g "cpu,memory:$cg_name" bin/bookkeeper bookie
