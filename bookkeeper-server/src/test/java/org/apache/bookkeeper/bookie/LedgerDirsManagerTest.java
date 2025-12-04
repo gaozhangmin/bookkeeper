@@ -183,7 +183,7 @@ public class LedgerDirsManagerTest {
 
     @Test
     public void testGetWritableDirForLogNoEnoughDiskSpace() throws Exception {
-        conf.setMinUsableSizeForEntryLogCreation(curDir.getUsableSpace() + 1024);
+        conf.setMinUsableSizeForEntryLogCreation(curDir.getUsableSpace() + 10240000);
         dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
             new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold()), statsLogger);
         try {

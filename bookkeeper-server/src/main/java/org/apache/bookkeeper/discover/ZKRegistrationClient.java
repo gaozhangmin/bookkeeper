@@ -264,10 +264,11 @@ public class ZKRegistrationClient implements RegistrationClient {
         BookieServiceInfo bookieServiceInfo = deserializeBookieServiceInfo(bookieId, bytes);
         Versioned<BookieServiceInfo> result = new Versioned<>(bookieServiceInfo,
                 new LongVersion(stat.getCversion()));
-        log.info("Update BookieInfoCache (writable bookie) {} -> {}", bookieId, result.getValue());
         if (isReadonly) {
+            log.info("Update BookieInfoCache (readonly bookie) {} -> {}", bookieId, result.getValue());
             readOnlyBookieInfo.put(bookieId, result);
         } else {
+            log.info("Update BookieInfoCache (writable bookie) {} -> {}", bookieId, result.getValue());
             writableBookieInfo.put(bookieId, result);
         }
         return result;
@@ -599,8 +600,7 @@ public class ZKRegistrationClient implements RegistrationClient {
                         if (path.startsWith(bookieReadonlyRegistrationPath)) {
                             log.info("Invalidate readonly cache for {}", bookieId);
                             readOnlyBookieInfo.remove(bookieId);
-                        }
-                        if (path.startsWith(bookieRegistrationPath)) {
+                        } else if (path.startsWith(bookieRegistrationPath)) {
                             log.info("Invalidate writable cache for {}", bookieId);
                             writableBookieInfo.remove(bookieId);
                         }
@@ -609,8 +609,7 @@ public class ZKRegistrationClient implements RegistrationClient {
                         if (path.startsWith(bookieReadonlyRegistrationPath)) {
                             log.info("refresh readonly cache for {}. path: {}", bookieId, path);
                             readBookieInfoAsReadonlyBookie(bookieId);
-                        }
-                        if (path.startsWith(bookieRegistrationPath)) {
+                        } else if (path.startsWith(bookieRegistrationPath)) {
                             log.info("refresh writable cache for {}. path: {}", bookieId, path);
                             readBookieInfoAsWritableBookie(bookieId);
                         }

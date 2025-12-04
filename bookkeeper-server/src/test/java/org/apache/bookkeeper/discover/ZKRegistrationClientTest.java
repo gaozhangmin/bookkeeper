@@ -19,6 +19,7 @@ package org.apache.bookkeeper.discover;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -170,5 +171,136 @@ public class ZKRegistrationClientTest extends BookKeeperClusterTestCase {
             assertEquals(e1.getAuth(), e2.getAuth());
         }
 
+    }
+
+    /**
+     * More aggressive test to reproduce the race condition by forcing specific execution order.
+     * This test directly manipulates the internal state to simulate the race condition.
+     */
+    @Test
+    public void testRaceConditionWithForcedOrdering() throws Throwable {
+        final String zksConnectionString = zkUtil.getZooKeeperConnectString();
+        final String ledgersRoot = "/test/ledgers-" + UUID.randomUUID();
+
+        @Cleanup
+        ZooKeeper zk = new ZooKeeper(zksConnectionString, 5000, null);
+        final ServerConfiguration serverConfiguration = new ServerConfiguration();
+        serverConfiguration.setZkLedgersRootPath(ledgersRoot);
+        final FaultInjectableZKRegistrationManager rm =
+                new FaultInjectableZKRegistrationManager(serverConfiguration, zk);
+        rm.prepareFormat();
+
+        ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(2);
+        @Cleanup
+        ZKRegistrationClient rc = new ZKRegistrationClient(zk, ledgersRoot, scheduledExecutorService, true);
+
+        // Create test bookie
+        BookieId testBookieId = BookieId.parse("racetestbookie:3181");
+        BookieServiceInfo testBookieServiceInfo = createTestBookieServiceInfo("racetestbookie", 3181);
+
+        // Step 1: Register bookie as readonly and setup watchers
+        rm.registerBookie(testBookieId, true, testBookieServiceInfo);
+        rm.writeCookie(testBookieId, new Versioned<>(new byte[0], Version.NEW));
+        Thread.sleep(100);
+
+        rc.watchReadOnlyBookies(bookies -> {
+            System.out.println("ReadOnly bookies changed: " + bookies.getValue());
+        });
+        rc.watchWritableBookies(bookies -> {
+            System.out.println("Writable bookies changed: " + bookies.getValue());
+        });
+
+        // Wait for initial setup
+        Awaitility.await().untilAsserted(() -> {
+            Set<BookieId> readonlyBookies = rc.getReadOnlyBookies().get().getValue();
+            assertTrue("Bookie should be in readonly list", readonlyBookies.contains(testBookieId));
+            BookieServiceInfo cachedInfo = rc.getBookieServiceInfo(testBookieId).get().getValue();
+            compareBookieServiceInfo(cachedInfo, testBookieServiceInfo);
+        });
+
+        // Step 2: Simulate race condition with controlled timing
+        String readonlyPath = ledgersRoot + "/available/readonly/" + testBookieId;
+        String writablePath = ledgersRoot + "/available/" + testBookieId;
+        byte[] serviceInfoBytes =
+                FaultInjectableZKRegistrationManager.serializeBookieServiceInfo(testBookieServiceInfo);
+
+        // Use CountDownLatch to control execution order
+        final java.util.concurrent.CountDownLatch writableNodeCreated = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch readyToDeleteReadonly = new java.util.concurrent.CountDownLatch(1);
+
+        // Thread 1: Create writable node (this should trigger WatchTask first)
+        Thread writableThread = new Thread(() -> {
+            try {
+                zk.create(writablePath, serviceInfoBytes,
+                         org.apache.bookkeeper.util.ZkUtils.getACLs(serverConfiguration),
+                         org.apache.zookeeper.CreateMode.EPHEMERAL);
+                System.out.println("Created writable node: " + writablePath);
+
+                // Wait a bit to let WatchTask process the writable node first
+                Thread.sleep(1000);
+                readyToDeleteReadonly.countDown();
+
+            } catch (Exception e) {
+                System.err.println("Error creating writable node: " + e.getMessage());
+                writableNodeCreated.countDown();
+                readyToDeleteReadonly.countDown();
+            }
+        });
+
+        // Thread 2: Delete readonly node (this should trigger BookieServiceInfoCacheInvalidationWatcher after)
+        Thread readonlyThread = new Thread(() -> {
+            try {
+                // Wait for writable node to be created first
+                readyToDeleteReadonly.await();
+
+                // Now delete readonly node - this should trigger the bug
+                zk.delete(readonlyPath, -1);
+                System.out.println("Deleted readonly node: " + readonlyPath);
+
+            } catch (Exception e) {
+                System.err.println("Error deleting readonly node: " + e.getMessage());
+            }
+        });
+
+        // Execute both threads
+        writableThread.start();
+        readonlyThread.start();
+
+        // Wait for both threads to complete
+        writableThread.join(10000);
+        readonlyThread.join(10000);
+
+        Thread.sleep(200); // Shorter wait to catch the bug before self-healing
+
+
+        try {
+            BookieServiceInfo finalCachedInfo  = rc.getBookieServiceInfo(testBookieId).get().getValue();
+            // If we reach here, the cache was not corrupted - assert the content is correct
+            compareBookieServiceInfo(finalCachedInfo, testBookieServiceInfo);
+
+            // Also verify bookie is in the correct lists
+            Set<BookieId> finalWritableBookies = rc.getWritableBookies().get().getValue();
+            Set<BookieId> finalReadonlyBookies = rc.getReadOnlyBookies().get().getValue();
+
+            assertTrue("Bookie should be in writable list after readonly->writable transition",
+                    finalWritableBookies.contains(testBookieId));
+            assertTrue("Bookie should NOT be in readonly list after transition",
+                    !finalReadonlyBookies.contains(testBookieId));
+        } catch (Exception e) {
+            fail("Exception occurred while verifying final state: " + e.getMessage());
+        }
+    }
+
+    private BookieServiceInfo createTestBookieServiceInfo(String host, int port) {
+        BookieServiceInfo info = new BookieServiceInfo();
+        BookieServiceInfo.Endpoint endpoint = new BookieServiceInfo.Endpoint();
+        endpoint.setAuth(Collections.emptyList());
+        endpoint.setExtensions(Collections.emptyList());
+        endpoint.setId("bookie-rpc");
+        endpoint.setHost(host);
+        endpoint.setPort(port);
+        endpoint.setProtocol("bookie-rpc");
+        info.setEndpoints(Arrays.asList(endpoint));
+        return info;
     }
 }
