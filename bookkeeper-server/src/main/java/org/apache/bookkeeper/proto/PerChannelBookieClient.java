@@ -18,8 +18,6 @@
  */
 package org.apache.bookkeeper.proto;
 
-import static org.apache.bookkeeper.client.BookKeeperClientStats.READ_ENTRY_BYTES;
-
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ExtensionRegistry;
@@ -309,10 +307,15 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
     )
     private final Counter tooManyConnectionCounter;
     @StatsDoc(
-            name = READ_ENTRY_BYTES,
+            name = BookKeeperClientStats.READ_ENTRY_BYTES,
             help = "adding entries bytes"
     )
     private final Counter readEntryBytesCounter;
+    @StatsDoc(
+            name = BookKeeperClientStats.UNSENT_TIMEOUT_OP_COUNT,
+            help = "the number of operations timeout before network send"
+    )
+    final Counter unsentTimeoutOpCount;
     private final boolean useV2WireProtocol;
     protected final boolean preserveMdcForTaskExecution;
 
@@ -446,6 +449,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
         failedTlsHandshakeCounter = statsLogger.getCounter(BookKeeperClientStats.FAILED_TLS_HANDSHAKE_COUNTER);
         tooManyConnectionCounter = statsLogger.getCounter(BookKeeperClientStats.TOO_MANY_CONNECTION_COUNTER);
         readEntryBytesCounter = statsLogger.getCounter(BookKeeperClientStats.READ_ENTRY_BYTES);
+        unsentTimeoutOpCount = statsLogger.getCounter(BookKeeperClientStats.UNSENT_TIMEOUT_OP_COUNT);
 
         this.pcbcPool = pcbcPool;
 
@@ -1212,6 +1216,7 @@ public class PerChannelBookieClient extends ChannelInboundHandlerAdapter {
                         CompletionValue completion = completionObjects.get(key);
                         if (completion != null) {
                             completion.setOutstanding();
+                            completion.markNetworkSent();
                         }
                     } else {
                         nettyOpLogger.registerFailedEvent(MathUtils.elapsedNanos(startTime), TimeUnit.NANOSECONDS);

@@ -44,6 +44,9 @@ abstract class CompletionValue {
     protected Map<String, String> mdcContextMap;
     protected PerChannelBookieClient perChannelBookieClient;
 
+    // 跟踪请求是否已发送到网络
+    protected volatile boolean networkSent = false;
+
     static final Logger LOG = LoggerFactory.getLogger(CompletionValue.class);
 
     public CompletionValue(String operationName,
@@ -87,6 +90,10 @@ abstract class CompletionValue {
     }
 
     void timeout() {
+        // 如果请求还未发送到网络就超时了，统计未发送超时数量
+        if (!networkSent) {
+            perChannelBookieClient.unsentTimeoutOpCount.inc();
+        }
         timeoutOpLogger.registerSuccessfulEvent(latency(),
                 TimeUnit.NANOSECONDS);
         errorOut(BKException.Code.TimeoutException);
@@ -148,6 +155,11 @@ abstract class CompletionValue {
     public abstract void errorOut(int rc);
     public void setOutstanding() {
         // no-op
+    }
+
+    // 标记请求已发送到网络
+    public void markNetworkSent() {
+        this.networkSent = true;
     }
 
     protected void errorOutAndRunCallback(final Runnable callback) {
