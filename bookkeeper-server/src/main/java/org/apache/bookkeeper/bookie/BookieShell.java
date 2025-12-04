@@ -44,6 +44,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.bookkeeper.bookie.storage.EntryLogger;
+import org.apache.bookkeeper.bookie.storage.ldb.EntryLocationIndex;
+import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory;
+import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageRocksDB;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.common.annotation.InterfaceAudience.Private;
@@ -51,6 +54,7 @@ import org.apache.bookkeeper.common.conf.ConfigurationUtil;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.replication.ReplicationException;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.tools.cli.commands.autorecovery.ListUnderReplicatedCommand;
 import org.apache.bookkeeper.tools.cli.commands.autorecovery.LostBookieRecoveryDelayCommand;
 import org.apache.bookkeeper.tools.cli.commands.autorecovery.QueryAutoRecoveryStatusCommand;
@@ -98,8 +102,10 @@ import org.apache.bookkeeper.tools.cli.commands.cookie.GenerateCookieCommand;
 import org.apache.bookkeeper.tools.cli.commands.cookie.GetCookieCommand;
 import org.apache.bookkeeper.tools.cli.commands.cookie.UpdateCookieCommand;
 import org.apache.bookkeeper.tools.framework.CliFlags;
+import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.EntryFormatter;
 import org.apache.bookkeeper.util.LedgerIdFormatter;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.Tool;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -167,6 +173,7 @@ public class BookieShell implements Tool {
     static final String CMD_CHECK_DB_LEDGERS_INDEX = "check-db-ledgers-index";
     static final String CMD_REGENERATE_INTERLEAVED_STORAGE_INDEX_FILE = "regenerate-interleaved-storage-index-file";
     static final String CMD_QUERY_AUTORECOVERY_STATUS = "queryautorecoverystatus";
+    static final String CMD_ENTRYFILE = "entryfile";
 
     // cookie commands
     static final String CMD_CREATE_COOKIE = "cookie_create";
@@ -1568,6 +1575,135 @@ public class BookieShell implements Tool {
     }
 
     /**
+     * Command to get entry file path.
+     */
+    class EntryFileCmd extends MyCommand {
+
+        public EntryFileCmd() {
+            super(CMD_ENTRYFILE);
+            opts.addOption("l", "ledgerid", true, "Ledger ID");
+            opts.addOption("e", "entryid", true, "Entry ID");
+        }
+
+        @Override
+        Options getOptions() {
+            return opts;
+        }
+
+        @Override
+        String getDescription() {
+            return "Get the file path of an entry in the current bookie";
+        }
+
+        @Override
+        String getUsage() {
+            return "entryfile      Get the file path of an entry in the current bookie\n"
+                    + "             Usage: entryfile [options]\n"
+                    + "             Options:\n"
+                    + "             * -l, --ledgerid\n"
+                    + "              Ledger ID (param format: `ledgerId`)\n"
+                    + "             * -e, --entryid\n"
+                    + "              Entry ID (param format: `entryId`)";
+        }
+
+        @Override
+        int runCmd(CommandLine cmdLine) throws Exception {
+            final long ledgerId = getOptionLedgerIdValue(cmdLine, "ledgerid", -1);
+            final long entryId = getOptionLongValue(cmdLine, "entryid", -1);
+
+            if (ledgerId == -1) {
+                System.err.println("ERROR: Must specify a ledger id");
+                printUsage();
+                return -1;
+            }
+
+            if (entryId == -1) {
+                System.err.println("ERROR: Must specify an entry id");
+                printUsage();
+                return -1;
+            }
+
+            try {
+                // For DbLedgerStorage, use EntryLocationIndex to get entry location
+                if (bkConf.getLedgerStorageClass().contains("DbLedgerStorage")) {
+                    return getEntryFilePathFromDbStorage(ledgerId, entryId);
+                } else {
+                    System.err.println("ERROR: Entry file lookup is only supported for DbLedgerStorage");
+                    return -1;
+                }
+            } catch (Exception e) {
+                System.err.println("ERROR: Failed to get entry file path: " + e.getMessage());
+                return -1;
+            }
+        }
+
+        private int getEntryFilePathFromDbStorage(long ledgerId, long entryId) throws Exception {
+            // Initialize directories
+            DiskChecker diskChecker =
+                new DiskChecker(bkConf.getDiskUsageThreshold(),
+                               bkConf.getDiskUsageWarnThreshold());
+            LedgerDirsManager ledgerDirsManager =
+                new LedgerDirsManager(bkConf, bkConf.getLedgerDirs(), diskChecker);
+            LedgerDirsManager indexDirsManager = ledgerDirsManager;
+
+            File[] idxDirs = bkConf.getIndexDirs();
+            if (null != idxDirs) {
+                indexDirsManager = new LedgerDirsManager(bkConf, idxDirs, diskChecker);
+            }
+
+            List<File> indexDirs = indexDirsManager.getAllLedgerDirs();
+            int dirIndex = MathUtils.signSafeMod(ledgerId, indexDirs.size());
+            String indexBasePath = indexDirs.get(dirIndex).toString();
+
+            // Create EntryLocationIndex to lookup entry location
+            EntryLocationIndex entryLocationIndex =
+                new EntryLocationIndex(bkConf,
+                    (basePath, subPath, dbConfigType, conf1) ->
+                        new KeyValueStorageRocksDB(basePath, subPath, KeyValueStorageFactory.DbConfigType.Default,
+                            conf1, true),
+                    indexBasePath,
+                    NullStatsLogger.INSTANCE);
+
+            try {
+                long entryLocation = entryLocationIndex.getLocation(ledgerId, entryId);
+                if (entryLocation == 0) {
+                    System.out.println("Entry not found: ledger=" + ledgerIdFormatter.formatLedgerId(ledgerId)
+                                     + ", entry=" + entryId);
+                    return 0;
+                }
+
+                // Extract log ID and position from location
+                long entryLogId = entryLocation >> 32L;
+                long position = entryLocation & 0xffffffffL;
+
+                // Get ledger directories to find the entry log file
+                File entryLogFile = getFile(ledgerDirsManager, entryLogId, dirIndex);
+                System.out.println("Entry file path: " + entryLogFile.getAbsolutePath());
+                System.out.println("Entry location: log=" + Long.toHexString(entryLogId) + ", position=" + position);
+
+                return 0;
+            } finally {
+                entryLocationIndex.close();
+            }
+        }
+
+        private File getFile(LedgerDirsManager ledgerDirsManager, long entryLogId, int dirIndex) {
+            File ledgerDir = ledgerDirsManager.getAllLedgerDirs().get(dirIndex);
+
+            // Construct entry log file path
+            String entryLogFileName = Long.toHexString(entryLogId) + ".log";
+
+            // Check if ledgerDir already ends with "current", if not, add it
+            File entryLogDir = ledgerDir;
+            if (!ledgerDir.getName().equals("current")) {
+                entryLogDir = new File(ledgerDir, "current");
+            }
+            File entryLogFile = new File(entryLogDir, entryLogFileName);
+            return entryLogFile;
+        }
+    }
+
+    /**
      * Setter and Getter for LostBookieRecoveryDelay value (in seconds) in metadata store.
      */
     class LostBookieRecoveryDelayCmd extends MyCommand {
@@ -2589,6 +2725,7 @@ public class BookieShell implements Tool {
         commands.put(CMD_LASTMARK, new LastMarkCmd());
         commands.put(CMD_AUTORECOVERY, new AutoRecoveryCmd());
         commands.put(CMD_QUERY_AUTORECOVERY_STATUS, new QueryAutoRecoveryStatusCmd());
+        commands.put(CMD_ENTRYFILE, new EntryFileCmd());
         commands.put(CMD_LISTBOOKIES, new ListBookiesCmd());
         commands.put(CMD_LISTFILESONDISC, new ListDiskFilesCmd());
         commands.put(CMD_UPDATECOOKIE, new UpdateCookieCmd());
