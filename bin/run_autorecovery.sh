@@ -76,5 +76,5 @@ if [[ $? != 0 ]]; then
   exec $numa bin/bookkeeper autorecovery
 else
   echo "start bookkeeper with cgstart"
-  exec $numa cgstart bin/bookkeeper autorecovery
+  exec $numa cgstart --start_process_with_exec bin/bookkeeper autorecovery
 fi
