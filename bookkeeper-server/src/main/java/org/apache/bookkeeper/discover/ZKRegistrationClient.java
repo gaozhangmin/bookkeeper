@@ -153,15 +153,19 @@ public class ZKRegistrationClient implements RegistrationClient {
 
         @Override
         public void process(WatchedEvent event) {
-            if (EventType.None == event.getType()) {
-                if (KeeperState.Expired == event.getState()) {
-                    scheduleWatchTask(ZK_CONNECT_BACKOFF_MS);
+            // Use sequencer to ensure ordering with BookieServiceInfoCacheInvalidationWatcher
+            sequencer.sequential(() -> {
+                if (EventType.None == event.getType()) {
+                    if (KeeperState.Expired == event.getState()) {
+                        scheduleWatchTask(ZK_CONNECT_BACKOFF_MS);
+                    }
+                    return completedFuture(null);
                 }
-                return;
-            }
 
-            // re-read the bookie list
-            scheduleWatchTask(0L);
+                // re-read the bookie list
+                scheduleWatchTask(0L);
+                return completedFuture(null);
+            });
         }
 
         boolean isClosed() {
