@@ -94,7 +94,7 @@ class DbLedgerStorageStats {
             help = "time spent reading entries from the entry log files of the db ledger storage engine",
             parent = READ_ENTRY
     )
-    private final Counter readFromEntryLogTime;
+    private final OpStatsLogger readFromEntryLogTime;
     @StatsDoc(
             name = WRITE_CACHE_HITS,
             help = "number of write cache hits (on reads)",
@@ -204,7 +204,7 @@ class DbLedgerStorageStats {
         addEntryStats = stats.getThreadScopedOpStatsLogger(ADD_ENTRY);
         readEntryStats = stats.getThreadScopedOpStatsLogger(READ_ENTRY);
         readFromLocationIndexTime = stats.getThreadScopedCounter(READ_ENTRY_LOCATIONS_INDEX_TIME);
-        readFromEntryLogTime = stats.getThreadScopedCounter(READ_ENTRYLOG_TIME);
+        readFromEntryLogTime = stats.getThreadScopedOpStatsLogger(READ_ENTRYLOG_TIME);
         readCacheHitCounter = stats.getCounter(READ_CACHE_HITS);
         readCacheMissCounter = stats.getCounter(READ_CACHE_MISSES);
         writeCacheHitCounter = stats.getCounter(WRITE_CACHE_HITS);

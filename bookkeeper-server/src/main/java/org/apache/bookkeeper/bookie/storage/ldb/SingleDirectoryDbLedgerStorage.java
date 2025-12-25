@@ -647,7 +647,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         try {
             entry = entryLogger.readEntry(ledgerId, entryId, entryLocation);
         } finally {
-            dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+            dbLedgerStorageStats.getReadFromEntryLogTime().registerSuccessfulEvent(
                     MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
         }
 
@@ -775,7 +775,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
         long readEntryStartNano = MathUtils.nowInNano();
         ByteBuf content = entryLogger.readEntry(ledgerId, lastEntryId, entryLocation);
-        dbLedgerStorageStats.getReadFromEntryLogTime().addLatency(
+        dbLedgerStorageStats.getReadFromEntryLogTime().registerSuccessfulEvent(
                 MathUtils.elapsedNanos(readEntryStartNano), TimeUnit.NANOSECONDS);
         return content;
     }

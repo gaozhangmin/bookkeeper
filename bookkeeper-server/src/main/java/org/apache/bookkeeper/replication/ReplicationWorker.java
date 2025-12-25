@@ -524,6 +524,7 @@ public class ReplicationWorker implements Runnable {
                 + "might have deleted the ledger. "
                 + "So, no harm to continue", ledgerIdToReplicate);
             underreplicationManager.markLedgerReplicated(ledgerIdToReplicate);
+            numLedgersReplicated.inc();
             getExceptionCounter("BKNoSuchLedgerExistsOnMetadataServerException").inc();
             return false;
         } catch (BKNotEnoughBookiesException e) {
