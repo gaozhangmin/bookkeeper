@@ -1,0 +1,68 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# https://halo.corp.kuaishou.com/devcloud/base-image/meta/3/170?fullname=os.os.kop-base
+FROM registry.corp.kuaishou.com/ksbase/os/centos:centos76-python36
+
+ENV TZ Asia/Shanghai
+ENV LANG en_US.utf8
+ENV JAVA_VERSION 17
+ENV JAVA_HOME /home/web_server/jdk-17
+ENV PATH $PATH:$JAVA_HOME/bin
+
+RUN rm -rf /usr/local/sbin/kcsize \
+    && rm -rf /usr/local/bin/kcsize \
+    && curl -o /usr/local/bin/kcsize http://bs3-hb1.internal/image-kcsize/kcsize \
+    && chmod a+x /usr/local/bin/kcsize \
+    && ln -s /usr/local/bin/kcsize /usr/local/sbin/kcsize
+RUN pip install supervisor \
+    && ln -s /home/web_server/supervisord/conf /etc/supervisor \
+    && ln /usr/local/bin/supervisord /usr/bin/supervisord \
+    && ln /usr/local/bin/supervisorctl /usr/bin/supervisorctl
+RUN yum install -y wget \
+    && yum -y install vim \
+    && yum -y install unzip \
+    && yum -y install less \
+    && yum -y install gcc \
+    && yum -y install gcc-c++ \
+    && yum -y install python36-devel \
+    && yum -y install net-tools \
+    && yum -y install nload \
+    && yum -y install iproute \
+    && yum -y install iperf3 \
+    && pip3 install infra-framework \
+    && pip3 install requests \
+    && pip3 install loguru \
+    && wget -q https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/bop/jdk-17_linux-x64_bin.tar.gz \
+    && tar -xzf jdk-17_linux-x64_bin.tar.gz \
+    && mv jdk-17.* /home/web_server/jdk-17 \
+    && rm jdk-17_linux-x64_bin.tar.gz \
+    && wget -q https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/user-cloud-storage/bop/arthas-4.0.5-bin.zip \
+    && unzip -d /home/web_server/arthas arthas-4.0.5-bin.zip \
+    && rm arthas-4.0.5-bin.zip \
+    && wget -q -P /home/web_server https://infra-kbox.corp.kuaishou.com/vmfarm/tools/s3upload-cli.jar \
+    && wget -q -O csc_linux_amd64.tar.gz https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/devcloud-product/cloud-storage%2Fcsc_linux_amd64_1.0.tar.gz \
+    && tar -xzvf csc_linux_amd64.tar.gz -C /usr/bin/ \
+    && rm csc_linux_amd64.tar.gz \
+    && chmod +x /usr/bin/csc \
+    && echo 'alias broker="ps -ef | grep pulsar-broker"' >> ~/.bashrc \
+    && echo 'alias arthas="java -jar /home/web_server/arthas/arthas-boot.jar"' >> ~/.bashrc \
+    && echo 'alias cscu="csc --url upload"' >> ~/.bashrc \
+    && echo 'alias less="less -R"' >> ~/.bashrc \
+    && ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
+    && curl -L https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/hotreload/install-hotreload-jdk-17.sh | bash /dev/stdin \
+    && curl -L https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/kbox-release/kbox/install.sh | bash -s -- -n kbox-core -e runtime -v 2.6.6 \
+    && rm -rf /var/lib/apt/lists/*
+

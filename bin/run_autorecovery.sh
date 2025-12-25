@@ -20,34 +20,20 @@
 # for debug
 set -x
 
+export JAVA_HOME=${JAVA_HOME:-"/opt/kbox/latest/jdk/snowman17"}
+
+mkdir -p /home/web_server/bookkeeper
+
+ln -sfn $JAVA_HOME /home/web_server/bookkeeper/jdk-17
+
 # install jdk
-bk_basic=/home/web_server/bk-autorecovery
-jdk_dirname=$bk_basic/jdk-17
-wget -q https://halo.corp.kuaishou.com/api/cloud-storage/v1/public-objects/bop/jdk-17_linux-x64_bin.tar.gz
+bk_basic=/home/web_server/kuaishou-runner/bk-autorecovery
 if [ ! -d "$bk_basic" ]; then
   mkdir -p "$bk_basic"
 fi
-if [ -d "$jdk_dirname" ]; then
-  rm -rf "$jdk_dirname"
-fi
-
-tar -xzf jdk-17_linux-x64_bin.tar.gz
-mv jdk-17.* $jdk_dirname
-rm jdk-17_linux-x64_bin.tar.gz
-
-# link
-if [ -L "/home/web_server/bk-autorecovery/apps" ]; then
-    rm /home/web_server/bk-autorecovery/apps
-fi
-ln -s /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bookkeeper-server /home/web_server/bk-autorecovery/apps
-
-if [ -d "/home/web_server/bk-autorecovery/supervisord" ]; then
-    rm /home/web_server/bk-autorecovery/supervisord
-fi
-ln -s /data/web_server/supervisord/conf /home/web_server/bk-autorecovery/supervisord
 
 ## save ENV vars
-echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > /data/web_server/project/kuaishou-runner-apps/"$KWS_SERVICE_NAME"/code/bookkeeper-server/conf/kwai_runtime.sh
+echo "export KWS_SERVICE_NAME=$KWS_SERVICE_NAME" > $bk_basic/conf/kwai_runtime.sh
 
 ## set directMem
 directMem="5g"
@@ -59,22 +45,42 @@ if [[ $KWS_SERVICE_NAME == *kop* ]]; then
   # install python kconf
   pip3 install infra-kconf
   # generate cluster config
-  python3 /home/web_server/bk-autorecovery/apps/bin/init_cluster_config.py
+  python3 $bk_basic/bin/init_cluster_config.py
 fi
 
 export BOOKIE_MEM_OPTS="-Xms${heapSize} -Xmx${heapSize} -XX:MaxDirectMemorySize=${directMem} -XX:-UseNUMA"
 export BOOKIE_ROOT_LOG_APPENDER="ROLLINGFILE"
-export BOOKIE_LOG_DIR="/data/logs/$KWS_SERVICE_NAME"
+export BOOKIE_LOG_DIR=/home/web_server/kuaishou-runner/log
+export BOOKIE_LOG_FILE=bk-autorecovery.log
 
-## set rocksdb jni dir, default is /tmp
-export ROCKSDB_SHAREDLIB_DIR="/home/web_server/bk-autorecovery/apps"
 
-numa='numactl --interleave all'
-which cgstart > /dev/null 2>&1
-if [[ $? != 0 ]]; then
-  echo "start bookkeeper without cgstart"
-  exec $numa bin/bookkeeper autorecovery
-else
-  echo "start bookkeeper with cgstart"
-  exec $numa cgstart --start_process_with_exec bin/bookkeeper autorecovery
-fi
+# 启动 Java 进程并获取其 PID
+$bk_basic/bin/bookkeeper autorecovery &
+JAVA_PID=$!
+
+# 等待进程启动
+sleep 5
+
+# 获取 PID
+JAVA_PID=$(jps | grep AutoRecoveryMain | awk '{print $1}')
+
+echo "[SERVICE_START_UP] pid=$JAVA_PID,status=success,start_time=$(date +%s%3N)" > /home/web_server/kuaishou-runner/log/startup.log
+
+# 定义一个函数来处理 SIGTERM 信号
+handle_sigterm() {
+    echo "Received SIGTERM, forwarding to Java process..."
+    kill -TERM "$JAVA_PID"
+    while kill -0 $JAVA_PID 2>/dev/null; do
+        sleep 1
+        echo "Waiting for Java process to terminate..."
+    done
+}
+
+# 捕获 SIGTERM 信号并调用 handle_sigterm 函数
+trap 'handle_sigterm' TERM
+
+# 等待 Java 进程结束
+wait "$JAVA_PID"
+
+echo "Java process has terminated."
+
