@@ -128,6 +128,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     private final ScheduledExecutorService cleanupExecutor = Executors
             .newSingleThreadScheduledExecutor(new DefaultThreadFactory("db-storage-cleanup"));
 
+    private final ScheduledExecutorService rocksdbStatsExecutor = Executors
+            .newSingleThreadScheduledExecutor(new DefaultThreadFactory("rocksdb-stats-executor"));
+
     private final CopyOnWriteArrayList<LedgerDeletionListener> ledgerDeletionListeners = Lists
             .newCopyOnWriteArrayList();
 
@@ -177,6 +180,8 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         StatsLogger ledgerIndexDirStatsLogger = statsLogger
                 .scopeLabel("ledgerDir", ledgerBaseDir)
                 .scopeLabel("indexDir", indexBaseDir);
+        StatsLogger rocksdbStatsLogger = statsLogger
+                .scopeLabel("ledgerDir", ledgerBaseDir);
 
         this.writeCacheMaxSize = writeCacheSize;
         this.writeCache = new WriteCache(allocator, writeCacheMaxSize / 2);
@@ -208,6 +213,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         cleanupExecutor.scheduleAtFixedRate(this::cleanupStaleTransientLedgerInfo,
                 TransientLedgerInfo.LEDGER_INFO_CACHING_TIME_MINUTES,
                 TransientLedgerInfo.LEDGER_INFO_CACHING_TIME_MINUTES, TimeUnit.MINUTES);
+        entryLocationIndex.registerStats(rocksdbStatsLogger);
+        rocksdbStatsExecutor.scheduleAtFixedRate(entryLocationIndex::stats,
+                0, conf.getEntryLocationStatsInterval(), TimeUnit.SECONDS);
 
         this.entryLogger = entryLogger;
         gcThread = new GarbageCollectorThread(conf,
@@ -351,6 +359,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
             cleanupExecutor.shutdown();
             cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS);
+
+            rocksdbStatsExecutor.shutdown();
+            rocksdbStatsExecutor.awaitTermination(1, TimeUnit.SECONDS);
 
             ledgerIndex.close();
             entryLocationIndex.close();

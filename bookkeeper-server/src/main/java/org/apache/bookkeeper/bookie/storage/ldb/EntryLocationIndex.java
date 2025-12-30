@@ -65,6 +65,14 @@ public class EntryLocationIndex implements Closeable {
             });
     }
 
+    public void registerStats(StatsLogger statsLogger) {
+        ((KeyValueStorageRocksDB) (locationsDb)).registerStats(statsLogger);
+    }
+
+    public boolean stats() {
+        return ((KeyValueStorageRocksDB) (locationsDb)).stats();
+    }
+
     @Override
     public void close() throws IOException {
         locationsDb.close();

@@ -35,12 +35,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import org.apache.bookkeeper.bookie.storage.ldb.KeyValueStorageFactory.DbConfigType;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.lang3.StringUtils;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
@@ -48,11 +54,14 @@ import org.rocksdb.Cache;
 import org.rocksdb.ChecksumType;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyMetaData;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.HistogramType;
 import org.rocksdb.InfoLogLevel;
 import org.rocksdb.LRUCache;
+import org.rocksdb.LevelMetaData;
 import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
@@ -62,6 +71,11 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.RocksObject;
 import org.rocksdb.Slice;
+import org.rocksdb.SstFileManager;
+import org.rocksdb.SstFileMetaData;
+import org.rocksdb.Statistics;
+import org.rocksdb.StatsLevel;
+import org.rocksdb.TickerType;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
@@ -91,6 +105,13 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
     private final int writeBatchMaxSize;
 
     private String dbPath;
+
+    private Statistics statistics;
+    private SstFileManager sstFileManager;
+    private Map<String, Long> counterMap = new HashMap<>();
+    private Map<String, AtomicLong> gaugeMap = new HashMap<>();
+    private Map<String, Gauge<Long>> gaugeContainer = new HashMap<>();
+    private StatsLogger statsLogger;
 
     private static final String ROCKSDB_LOG_PATH = "dbStorage_rocksDB_logPath";
     private static final String ROCKSDB_LOG_LEVEL = "dbStorage_rocksDB_logLevel";
@@ -161,6 +182,22 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
         final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
         try {
             OptionsUtil.loadOptionsFromFile(dbFilePath, Env.getDefault(), dbOptions, cfDescs, false);
+
+            // Configure statistics
+            statistics = new Statistics();
+            statistics.setStatsLevel(StatsLevel.EXCEPT_DETAILED_TIMERS);
+            dbOptions.setStatistics(statistics);
+
+            // Configure sst file manager
+            try {
+                sstFileManager = new SstFileManager(Env.getDefault());
+            } catch (Throwable t) {
+                throw new IOException("Failed to new SstFileManager", t);
+            }
+            dbOptions.setSstFileManager(sstFileManager);
+
+            dbOptions.setIncreaseParallelism(32);
+
             // Configure file path
             String logPath = conf.getString(ROCKSDB_LOG_PATH, "");
             if (!logPath.isEmpty()) {
@@ -204,7 +241,6 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             int blockSize = conf.getInt(ROCKSDB_BLOCK_SIZE, 64 * 1024);
             int bloomFilterBitsPerKey = conf.getInt(ROCKSDB_BLOOM_FILTERS_BITS_PER_KEY, 10);
             boolean lz4CompressionEnabled = conf.getBoolean(ROCKSDB_LZ4_COMPRESSION_ENABLED, true);
-
             if (lz4CompressionEnabled) {
                 options.setCompressionType(CompressionType.LZ4_COMPRESSION);
             }
@@ -221,6 +257,18 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             options.setMaxOpenFiles(-1);
             options.setTargetFileSizeBase(sstSizeMB * 1024 * 1024);
             options.setDeleteObsoleteFilesPeriodMicros(TimeUnit.HOURS.toMicros(1));
+
+            statistics = new Statistics();
+            statistics.setStatsLevel(StatsLevel.EXCEPT_DETAILED_TIMERS);
+            options.setStatistics(statistics);
+            options.setStatsDumpPeriodSec(30);
+
+            try {
+                sstFileManager = new SstFileManager(Env.getDefault());
+            } catch (Throwable t) {
+                throw new IOException("Failed to new SstFileManager", t);
+            }
+            options.setSstFileManager(sstFileManager);
 
             this.cache = new LRUCache(blockCacheSize);
             BlockBasedTableConfig tableOptions = new BlockBasedTableConfig();
@@ -309,6 +357,7 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
         optionCache.close();
         optionDontCache.close();
         emptyBatch.close();
+        unregisterGaugeStats();
     }
 
     @Override
@@ -416,6 +465,218 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
         } catch (RocksDBException e) {
             throw new IOException("Error in RocksDB compact", e);
         }
+    }
+
+    public void registerStats(StatsLogger statsLogger) {
+        if (closed) {
+            return;
+        }
+
+        try {
+            closedLock.readLock().lock();
+            if (closed) {
+                return;
+            }
+
+            // HistogramType
+            for (HistogramType histogramType : HistogramType.values()) {
+                if (histogramType == HistogramType.HISTOGRAM_ENUM_MAX) {
+                    continue;
+                }
+                String type = "rocksdb_" + histogramType.name().toLowerCase();
+                gaugeMap.put(type + "_max", new AtomicLong(0));
+                gaugeMap.put(type + "_p99", new AtomicLong(0));
+                gaugeMap.put(type + "_avg", new AtomicLong(0));
+            }
+
+            // level
+            ColumnFamilyMetaData cf = db.getColumnFamilyMetaData();
+            for (LevelMetaData level : cf.levels()) {
+                gaugeMap.put("rocksdb_key_num_level_" + level.level(), new AtomicLong(0));
+                gaugeMap.put("rocksdb_key_deletion_num_level_" + level.level(), new AtomicLong(0));
+                gaugeMap.put("rocksdb_compacted_file_num_level_" + level.level(), new AtomicLong(0));
+                gaugeMap.put("rocksdb_file_size_level_" + level.level(), new AtomicLong(0));
+            }
+
+            // sst
+            gaugeMap.put("rocksdb_total_size", new AtomicLong(0L));
+            gaugeMap.put("rocksdb_total_sst_num", new AtomicLong(0L));
+            gaugeMap.put("rocksdb_key_num", new AtomicLong(0L));
+
+            // cache
+            gaugeMap.put("rocksdb_memtable_size", new AtomicLong(0));
+            gaugeMap.put("rocksdb_block_cache_usage", new AtomicLong(0));
+            gaugeMap.put("rocksdb_block_cache_capacity", new AtomicLong(0));
+            gaugeMap.put("rocksdb_block_cache_pinned_usage", new AtomicLong(0));
+        } finally {
+            closedLock.readLock().unlock();
+        }
+
+        Function<AtomicLong, Gauge<Long>> gauge = (value) -> new Gauge<Long>() {
+            @Override
+            public Long getDefaultValue() {
+                return 0L;
+            }
+            @Override
+            public Long getSample() {
+                return value.get();
+            }
+        };
+
+        gaugeContainer.clear();
+        gaugeMap.forEach((key, value) -> {
+            gaugeContainer.put(key, gauge.apply(value));
+        });
+        gaugeContainer.forEach(statsLogger::registerGauge);
+        this.statsLogger = statsLogger;
+    }
+
+    public void unregisterGaugeStats() {
+        StatsLogger statsLogger = this.statsLogger;
+        if (statsLogger == null) {
+            return;
+        }
+        this.statsLogger = null;
+        gaugeContainer.forEach(statsLogger::unregisterGauge);
+        gaugeContainer.clear();
+        gaugeMap.clear();
+    }
+
+    public boolean stats() {
+        StatsLogger statsLogger = this.statsLogger;
+        if (statsLogger == null) {
+            return false;
+        }
+
+        if (closed) {
+            return false;
+        }
+
+        long startTime = System.nanoTime();
+        try {
+            closedLock.readLock().lock();
+            if (closed) {
+                return false;
+            }
+
+            // TickerType
+            statsTickerType(statsLogger);
+
+            // HistogramType
+            statsHistogramType();
+
+            // level
+            statsLevelInfo();
+
+            // sst
+            statsSstInfo();
+
+            // cache
+            statsCacheInfo();
+
+            statsLogger.getOpStatsLogger("rocksdb_stats").registerSuccessfulEvent(
+                    System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+        } catch (Exception exception) {
+            log.error("rocksdb stats exception ", exception);
+            statsLogger.getOpStatsLogger("rocksdb_stats").registerFailedEvent(
+                    System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+            return false;
+        } finally {
+            closedLock.readLock().unlock();
+        }
+        return true;
+    }
+
+    private void statsTickerType(StatsLogger statsLogger) {
+        Statistics statistics = this.statistics;
+        if (statistics == null) {
+            return;
+        }
+        for (TickerType tickerType : TickerType.values()) {
+            if (tickerType == TickerType.TICKER_ENUM_MAX) {
+                continue;
+            }
+            long tickerCount = statistics.getTickerCount(tickerType);
+            String tag = "rocksdb_" + tickerType.name().toLowerCase();
+            if (counterMap.containsKey(tag)) {
+                long diff = tickerCount - counterMap.get(tag);
+                statsLogger.getCounter(tag).addCount(diff);
+            }
+            counterMap.put(tag, tickerCount);
+        }
+    }
+
+    private void statsHistogramType() {
+        Statistics statistics = this.statistics;
+        if (statistics == null) {
+            return;
+        }
+        for (HistogramType histogramType : HistogramType.values()) {
+            if (histogramType == HistogramType.HISTOGRAM_ENUM_MAX) {
+                continue;
+            }
+            String type = "rocksdb_" + histogramType.name().toLowerCase();
+            long max = (long) statistics.getHistogramData(histogramType).getMax();
+            long p99 = (long) statistics.getHistogramData(histogramType).getPercentile99();
+            long avg = (long) statistics.getHistogramData(histogramType).getAverage();
+            gaugeMap.getOrDefault(type + "_max", new AtomicLong(0)).set(max);
+            gaugeMap.getOrDefault(type + "_p99", new AtomicLong(0)).set(p99);
+            gaugeMap.getOrDefault(type + "_avg", new AtomicLong(0)).set(avg);
+        }
+    }
+
+    private void statsLevelInfo() {
+        ColumnFamilyMetaData cf = db.getColumnFamilyMetaData();
+        for (LevelMetaData level : cf.levels()) {
+            long fileSize = 0;
+            long keyCount = 0;
+            long keyDeletionCount = 0;
+            long compactedFileCount = 0;
+            for (SstFileMetaData file : level.files()) {
+                fileSize += file.size();
+                keyCount += file.numEntries();
+                keyDeletionCount += file.numDeletions();
+                compactedFileCount += file.beingCompacted() ? 1 : 0;
+            }
+            gaugeMap.getOrDefault("rocksdb_key_num_level_" + level.level(), new AtomicLong(0)).set(keyCount);
+            gaugeMap.getOrDefault("rocksdb_key_deletion_num_level_" + level.level(), new AtomicLong(0))
+                    .set(keyDeletionCount);
+            gaugeMap.getOrDefault("rocksdb_compacted_file_num_level_" + level.level(), new AtomicLong(0))
+                    .set(compactedFileCount);
+            gaugeMap.getOrDefault("rocksdb_file_size_level_" + level.level(), new AtomicLong(0)).set(fileSize);
+            log.debug("rocksdb stats level dbPath:{} level:{} fileSize:{} keyCount:{}"
+                            + " keyDeletionCount:{} compactedFileCount:{}",
+                    dbPath, level.level(), fileSize, keyCount, keyDeletionCount, compactedFileCount);
+        }
+    }
+
+    private void statsSstInfo() throws RocksDBException {
+        SstFileManager sstFileManager = this.sstFileManager;
+        if (sstFileManager == null) {
+            return;
+        }
+        long totalSize = sstFileManager.getTotalSize();
+        Map<String, Long> trackedFiles = sstFileManager.getTrackedFiles();
+        long estimateMsgNums = db.getLongProperty("rocksdb.estimate-num-keys");
+        gaugeMap.getOrDefault("rocksdb_total_size", new AtomicLong(0)).set(totalSize);
+        gaugeMap.getOrDefault("rocksdb_total_sst_num", new AtomicLong(0)).set(trackedFiles.size());
+        gaugeMap.getOrDefault("rocksdb_key_num", new AtomicLong(0)).set(estimateMsgNums);
+        log.debug("db_stats sst, rocksdb_total_size={}, trackedFiles={}, rocksdb_key_num={}",
+                totalSize, trackedFiles.size(), estimateMsgNums);
+    }
+
+    private void statsCacheInfo() throws RocksDBException {
+        long memTableSize = db.getLongProperty("rocksdb.cur-size-all-mem-tables");
+        long blockCacheUsage = db.getLongProperty("rocksdb.block-cache-usage");
+        long blockCacheCapacity = db.getLongProperty("rocksdb.block-cache-capacity");
+        long blockCachePinnedUsage = db.getLongProperty("rocksdb.block-cache-pinned-usage");
+        gaugeMap.getOrDefault("rocksdb_memtable_size", new AtomicLong(0)).set(memTableSize);
+        gaugeMap.getOrDefault("rocksdb_block_cache_usage", new AtomicLong(0)).set(blockCacheUsage);
+        gaugeMap.getOrDefault("rocksdb_block_cache_capacity", new AtomicLong(0)).set(blockCacheCapacity);
+        gaugeMap.getOrDefault("rocksdb_block_cache_pinned_usage", new AtomicLong(0)).set(blockCachePinnedUsage);
+        log.debug("db_stats cache, rocksdb_memtable_size={}, blockCacheUsage={},"
+                        + " blockCacheCapacity={}, blockCachePinnedUsage={}",
+                memTableSize, blockCacheUsage, blockCacheCapacity, blockCachePinnedUsage);
     }
 
     private long getRocksDBSize() {

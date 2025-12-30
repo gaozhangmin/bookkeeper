@@ -107,6 +107,8 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String COMPACTION_RATE_BY_ENTRIES = "compactionRateByEntries";
     protected static final String COMPACTION_RATE_BY_BYTES = "compactionRateByBytes";
     protected static final String ENTRY_LOCATION_COMPACTION_INTERVAL = "entryLocationCompactionInterval";
+    protected static final String ENTRY_LOCATION_STATS_INTERVAL = "entryLocationStatsInterval";
+
 
     // Gc Parameters
     protected static final String GC_WAIT_TIME = "gcWaitTime";
@@ -2998,6 +3000,29 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setEntryLocationCompactionInterval(long interval) {
         setProperty(ENTRY_LOCATION_COMPACTION_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get interval to stats entry location, in seconds.
+     *
+     * @return stats interval.
+     */
+    public long getEntryLocationStatsInterval() {
+        return getLong(ENTRY_LOCATION_STATS_INTERVAL, 30);
+    }
+
+    /**
+     * Set interval to stats entry location rocksdb.
+     *
+     * @see #getEntryLocationStatsInterval()
+     *
+     * @param interval
+     *          Interval to stats entry location
+     * @return server configuration
+     */
+    public ServerConfiguration setEntryLocationStatsInterval(long interval) {
+        setProperty(ENTRY_LOCATION_STATS_INTERVAL, interval);
         return this;
     }
 
