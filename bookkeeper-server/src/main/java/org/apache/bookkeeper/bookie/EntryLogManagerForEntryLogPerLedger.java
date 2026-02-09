@@ -39,8 +39,10 @@ import com.google.common.cache.RemovalNotification;
 import io.netty.buffer.ByteBuf;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -682,14 +684,39 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
 
     @Override
     public void flushRotatedLogs() throws IOException {
-        for (BufferedLogChannel channel : rotatedLogChannels) {
-            channel.flushAndForceWrite(true);
+        List<BufferedLogChannel> channels = null;
+        synchronized (this) {
+            if (!rotatedLogChannels.isEmpty()) {
+                channels = new ArrayList<>(rotatedLogChannels);
+                rotatedLogChannels.clear();
+            }
+        }
+        if (null == channels) {
+            return;
+        }
+        Iterator<BufferedLogChannel> chIter = channels.iterator();
+        while (chIter.hasNext()) {
+            BufferedLogChannel channel = chIter.next();
+            try {
+                channel.flushAndForceWrite(true);
+            } catch (IOException ioe) {
+                // rescue from flush exception, add unflushed channels back
+                synchronized (this) {
+                    if (rotatedLogChannels.isEmpty()) {
+                        rotatedLogChannels.addAll(channels);
+                    } else {
+                        rotatedLogChannels.addAll(0, channels);
+                    }
+                }
+                throw ioe;
+            }
+            // remove the channel from the list after it is successfully flushed
+            chIter.remove();
             // since this channel is only used for writing, after flushing the channel,
             // we had to close the underlying file channel. Otherwise, we might end up
             // leaking fds which cause the disk spaces could not be reclaimed.
             channel.close();
             recentlyCreatedEntryLogsStatus.flushRotatedEntryLog(channel.getLogId());
-            rotatedLogChannels.remove(channel);
             log.info("Synced entry logger {} to disk.", channel.getLogId());
         }
     }
