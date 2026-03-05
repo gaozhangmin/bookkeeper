@@ -241,12 +241,12 @@ public class DefaultEntryLogTest {
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
         RandomAccessFile raf = new RandomAccessFile(f, "rw");
-        raf.setLength(raf.length() - 10);
+        raf.setLength(raf.length() - 94);
         raf.close();
         // now see which ledgers are in the log
         entryLogger = new DefaultEntryLogger(conf, dirsMgr);
 
-        EntryLogMetadata meta = entryLogger.getEntryLogMetadata(0L);
+        EntryLogMetadata meta = entryLogger.extractEntryLogMetadataByScanning(0L, null);
         String metaString = meta.toString();
         assertEquals(metaString,
                 "{totalSize = 60, remainingSize = 60, ledgersMap = ConcurrentLongLongHashMap{1 => 30, 3 => 30}}");

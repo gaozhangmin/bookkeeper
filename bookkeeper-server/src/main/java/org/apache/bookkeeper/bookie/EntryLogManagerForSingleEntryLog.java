@@ -214,7 +214,21 @@ class EntryLogManagerForSingleEntryLog extends EntryLogManagerBase {
     @Override
     public void close() throws IOException {
         if (activeLogChannel != null) {
-            activeLogChannel.close();
+            try {
+                // Ensure we append ledger metadata before closing
+                // Only append if ledger map is not empty and hasn't been appended yet
+                if (!activeLogChannel.getLedgersMap().isEmpty() && !activeLogChannel.isLedgersMapAppended()) {
+                    activeLogChannel.flush();
+                    activeLogChannel.appendLedgersMap();
+                    log.info("Appended ledger metadata to entry log {} during shutdown", activeLogChannel.getLogId());
+                }
+            } catch (IOException e) {
+                log.error("Failed to append ledger metadata during shutdown for log {}",
+                         activeLogChannel.getLogId(), e);
+                // Continue with close to avoid resource leaks
+            } finally {
+                activeLogChannel.close();
+            }
         }
     }
 

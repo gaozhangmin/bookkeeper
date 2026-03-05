@@ -587,8 +587,23 @@ class EntryLogManagerForEntryLogPerLedger extends EntryLogManagerBase {
     public void close() throws IOException {
         Set<BufferedLogChannelWithDirInfo> copyOfCurrentLogsWithDirInfo = getCopyOfCurrentLogs();
         for (BufferedLogChannelWithDirInfo currentLogWithDirInfo : copyOfCurrentLogsWithDirInfo) {
-            if (currentLogWithDirInfo.getLogChannel() != null) {
-                currentLogWithDirInfo.getLogChannel().close();
+            BufferedLogChannel logChannel = currentLogWithDirInfo.getLogChannel();
+            if (logChannel != null) {
+                try {
+                    // Ensure we append ledger metadata before closing
+                    // Only append if ledger map is not empty and hasn't been appended yet
+                    if (!logChannel.getLedgersMap().isEmpty() && !logChannel.isLedgersMapAppended()) {
+                        logChannel.flush();
+                        logChannel.appendLedgersMap();
+                        log.info("Appended ledger metadata to entry log {} during shutdown", logChannel.getLogId());
+                    }
+                } catch (IOException e) {
+                    log.error("Failed to append ledger metadata during shutdown for log {}",
+                             logChannel.getLogId(), e);
+                    // Continue with close to avoid resource leaks
+                } finally {
+                    logChannel.close();
+                }
             }
         }
     }

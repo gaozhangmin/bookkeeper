@@ -91,6 +91,7 @@ public class DefaultEntryLogger implements EntryLogger {
         private final EntryLogMetadata entryLogMetadata;
         private final File logFile;
         private long ledgerIdAssigned = UNASSIGNED_LEDGERID;
+        private volatile boolean ledgersMapAppended = false;
 
         public BufferedLogChannel(ByteBufAllocator allocator, FileChannel fc, int writeCapacity, int readCapacity,
                 long logId, File logFile, long unpersistedBytesBound) throws IOException {
@@ -123,6 +124,14 @@ public class DefaultEntryLogger implements EntryLogger {
             this.ledgerIdAssigned = ledgerId;
         }
 
+        /**
+         * Check if ledgers map has already been appended to avoid duplicate writes.
+         * @return true if appendLedgersMap() has been called, false otherwise
+         */
+        public boolean isLedgersMapAppended() {
+            return ledgersMapAppended;
+        }
+
         @Override
         public String toString() {
             return MoreObjects.toStringHelper(BufferedChannel.class)
@@ -137,6 +146,13 @@ public class DefaultEntryLogger implements EntryLogger {
          * Updates the entry log file header with the offset and size of the map.
          */
         void appendLedgersMap() throws IOException {
+            // Check if already appended to avoid duplicate writes
+            if (ledgersMapAppended) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Ledgers map already appended for entry log {}, skipping", logId);
+                }
+                return;
+            }
 
             long ledgerMapOffset = this.position();
 
@@ -206,6 +222,9 @@ public class DefaultEntryLogger implements EntryLogger {
             mapInfo.putInt(numberOfLedgers);
             mapInfo.flip();
             this.fileChannel.write(mapInfo, LEDGERS_MAP_OFFSET_POSITION);
+
+            // Mark that ledgers map has been successfully appended
+            ledgersMapAppended = true;
         }
     }
 
@@ -1158,7 +1177,7 @@ public class DefaultEntryLogger implements EntryLogger {
         return meta;
     }
 
-    private EntryLogMetadata extractEntryLogMetadataByScanning(long entryLogId,
+    public EntryLogMetadata extractEntryLogMetadataByScanning(long entryLogId,
                                                                AbstractLogCompactor.Throttler throttler)
         throws IOException {
         final EntryLogMetadata meta = new EntryLogMetadata(entryLogId);
