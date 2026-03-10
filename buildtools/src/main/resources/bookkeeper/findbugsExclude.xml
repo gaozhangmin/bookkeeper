@@ -332,4 +332,12 @@
     <Class name="org.apache.distributedlog.messaging.RRMultiWriter" />
     <Bug pattern="EI_EXPOSE_REP2" />
   </Match>
+
+  <!-- BookiePazAffinityMapping synchronization exclusion -->
+  <Match>
+    <!-- Suppress inconsistent synchronization warnings for BookiePazAffinityMapping
+         The fields are properly synchronized now with synchronized getRack method -->
+    <Class name="org.apache.bookkeeper.net.BookiePazAffinityMapping" />
+    <Bug pattern="IS2_INCONSISTENT_SYNC" />
+  </Match>
 </FindBugsFilter>
