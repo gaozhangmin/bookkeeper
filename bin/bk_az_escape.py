@@ -167,6 +167,83 @@ def get_per_region_available_bookies(zk_url, zk_ledgers_root_path):
     finally:
         zk_client.stop()
 
+def get_per_region_readonly_bookies(zk_url, zk_ledgers_root_path):
+    """
+    根据 KWS_SERVICE_PAZ 分类获取只读状态的bookie节点
+
+    Args:
+        zk_url: ZooKeeper连接地址
+        zk_ledgers_root_path: ZK中ledgers的根路径
+
+    Returns:
+        dict: 按PAZ分类的只读bookie字典，格式如下:
+        {
+            'HB1AZ1': ['10.106.122.141:3181', '10.106.122.142:3181'],
+            'HB1AZ2': ['10.106.122.145:3181'],
+            'HB1AZ3': ['10.106.122.143:3181'],
+            'unknown': ['10.106.122.144:3181']  # 无法解析PAZ的节点
+        }
+    """
+    zk_client = KazooClient(hosts=zk_url)
+    zk_client.start()
+
+    bookies_by_paz = {}
+
+    try:
+        readonly_path = f"{zk_ledgers_root_path}/available/readonly"
+
+        # 检查readonly节点是否存在
+        if not zk_client.exists(readonly_path):
+            print(f"只读节点路径不存在: {readonly_path}")
+            return bookies_by_paz
+
+        bookies = zk_client.get_children(readonly_path)
+        print(f"发现 {len(bookies)} 个只读状态的bookie节点")
+
+        for bookie in bookies:
+            try:
+                # 获取bookie节点的元数据
+                bookie_path = f"{readonly_path}/{bookie}"
+                data, stat = zk_client.get(bookie_path)
+
+                if not data:
+                    print(f"Readonly Bookie {bookie}: 无数据，归类为unknown")
+                    if 'unknown' not in bookies_by_paz:
+                        bookies_by_paz['unknown'] = []
+                    bookies_by_paz['unknown'].append(bookie)
+                    continue
+
+                # 解析protobuf数据
+                properties = parse_bookie_service_info_protobuf(data)
+
+                paz = properties.get('KWS_SERVICE_PAZ')
+                region = properties.get('KWS_SERVICE_REGION')
+
+                if paz:
+                    print(f"Readonly Bookie {bookie}: PAZ={paz}, Region={region}")
+                    if paz not in bookies_by_paz:
+                        bookies_by_paz[paz] = []
+                    bookies_by_paz[paz].append(bookie)
+                else:
+                    print(f"Readonly Bookie {bookie}: 无法解析PAZ信息，归类为unknown")
+                    if 'unknown' not in bookies_by_paz:
+                        bookies_by_paz['unknown'] = []
+                    bookies_by_paz['unknown'].append(bookie)
+
+            except Exception as e:
+                print(f"获取只读bookie {bookie} 元数据失败: {e}")
+                if 'unknown' not in bookies_by_paz:
+                    bookies_by_paz['unknown'] = []
+                bookies_by_paz['unknown'].append(bookie)
+
+        return bookies_by_paz
+
+    except Exception as e:
+        print(f"获取只读bookies失败: {e}")
+        return {}
+    finally:
+        zk_client.stop()
+
 def trigger_bookie_readonly(bookie_address):
     """
     将指定的bookie节点设置为只读模式
@@ -360,10 +437,7 @@ def execute_bookkeeper_readonly(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
 
         if not zk_servers or not zk_ledgers_root_path:
             error_msg = f"配置缺失: zkServers={zk_servers}, zkLedgersRootPath={zk_ledgers_root_path}"
-            send_oncall_group_message(
-                f"【BK ReadOnly告警】{cluster_name}: 执行失败，配置缺失: {error_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly告警】{cluster_name}: 执行失败，配置缺失: {error_msg}")
             return False
 
         # 2. 获取按AZ分类的bookie节点
@@ -371,34 +445,48 @@ def execute_bookkeeper_readonly(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
 
         if not bookies_by_paz:
             error_msg = "无法获取bookie节点信息"
-            send_oncall_group_message(
-                f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
         # 3. 检查指定AZ是否存在
         if az not in bookies_by_paz:
             available_azs = list(bookies_by_paz.keys())
             error_msg = f"指定的AZ '{az}' 不存在，可用的AZ: {available_azs}"
-            send_oncall_group_message(
-                f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
         target_bookies = bookies_by_paz[az]
         if not target_bookies:
             error_msg = f"AZ '{az}' 下没有可用的bookie节点"
-            send_oncall_group_message(
-                f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
         print(f"将对AZ '{az}' 下的 {len(target_bookies)} 个bookie节点执行只读模式设置")
 
-        # 4. 对指定AZ下的每个BookKeeper节点设置只读模式
+        # 4. 检查并创建disable节点
+        zk_client = KazooClient(hosts=zk_servers)
+        zk_client.start()
+
+        try:
+            disable_path = f"{zk_ledgers_root_path}/disable"
+
+            # 检查disable节点是否存在
+            if not zk_client.exists(disable_path):
+                print(f"disable节点不存在，正在创建: {disable_path}")
+                # 创建disable节点
+                zk_client.create(disable_path, value=b'', makepath=True)
+                print(f"disable节点创建成功: {disable_path}")
+            else:
+                print(f"disable节点已存在: {disable_path}")
+
+        except Exception as e:
+            print(f"检查/创建disable节点失败: {e}")
+            print(f"【BK ReadOnly告警】{cluster_name}: disable节点检查/创建失败: {str(e)}")
+            return False
+        finally:
+            zk_client.stop()
+
+        # 5. 对指定AZ下的每个BookKeeper节点设置只读模式
         success_count = 0
         failed_bookies = []
         readonly_verified_count = 0
@@ -427,7 +515,7 @@ def execute_bookkeeper_readonly(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
             if i < len(target_bookies) - 1:
                 time.sleep(5)
 
-        # 5. 汇总结果
+        # 6. 汇总结果
         total_bookies = len(target_bookies)
         failed_count = len(failed_bookies)
         verification_failed_count = len(readonly_verification_failed)
@@ -455,23 +543,14 @@ def execute_bookkeeper_readonly(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
 
         # 发送汇总消息
         if failed_count == 0:
-            send_oncall_group_message(
-                f"【BK ReadOnly通知】{summary_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly通知】{summary_msg}")
         else:
-            send_oncall_group_message(
-                f"【BK ReadOnly告警】{summary_msg}",
-                token=oncall_token
-            )
+            print(f"【BK ReadOnly告警】{summary_msg}")
 
         return failed_count == 0
 
     except Exception as e:
-        send_oncall_group_message(
-            f"【BK ReadOnly告警】{cluster_name}: 执行异常: {str(e)}\\n",
-            token=oncall_token
-        )
+        print(f"【BK ReadOnly告警】{cluster_name}: 执行异常: {str(e)}")
         return False
 
 def execute_bookkeeper_recovery(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-bae9-c92920013161"):
@@ -497,43 +576,31 @@ def execute_bookkeeper_recovery(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
 
         if not zk_servers or not zk_ledgers_root_path:
             error_msg = f"配置缺失: zkServers={zk_servers}, zkLedgersRootPath={zk_ledgers_root_path}"
-            send_oncall_group_message(
-                f"【BK Recovery告警】{cluster_name}: 执行失败，配置缺失: {error_msg}",
-                token=oncall_token
-            )
+            print(f"【BK Recovery告警】{cluster_name}: 执行失败，配置缺失: {error_msg}")
             return False
 
-        # 2. 获取按AZ分类的bookie节点
-        bookies_by_paz = get_per_region_available_bookies(zk_servers, zk_ledgers_root_path)
+        # 2. 获取按AZ分类的只读bookie节点
+        bookies_by_paz = get_per_region_readonly_bookies(zk_servers, zk_ledgers_root_path)
 
         if not bookies_by_paz:
-            error_msg = "无法获取bookie节点信息"
-            send_oncall_group_message(
-                f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            error_msg = "无法获取只读bookie节点信息"
+            print(f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
         # 3. 检查指定AZ是否存在
         if az not in bookies_by_paz:
             available_azs = list(bookies_by_paz.keys())
-            error_msg = f"指定的AZ '{az}' 不存在，可用的AZ: {available_azs}"
-            send_oncall_group_message(
-                f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            error_msg = f"指定的AZ '{az}' 中没有只读bookie节点，存在只读节点的AZ: {available_azs}"
+            print(f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
         target_bookies = bookies_by_paz[az]
         if not target_bookies:
-            error_msg = f"AZ '{az}' 下没有可用的bookie节点"
-            send_oncall_group_message(
-                f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}",
-                token=oncall_token
-            )
+            error_msg = f"AZ '{az}' 下没有只读状态的bookie节点"
+            print(f"【BK Recovery告警】{cluster_name}: 执行失败，{error_msg}")
             return False
 
-        print(f"将对AZ '{az}' 下的 {len(target_bookies)} 个bookie节点执行只读模式恢复")
+        print(f"将对AZ '{az}' 下的 {len(target_bookies)} 个只读bookie节点执行恢复操作")
 
         # 4. 对指定AZ下的每个BookKeeper节点恢复读写模式
         success_count = 0
@@ -564,7 +631,7 @@ def execute_bookkeeper_recovery(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
             if i < len(target_bookies) - 1:
                 time.sleep(5)
 
-        # 5. 汇总结果
+        # 6. 汇总结果
         total_bookies = len(target_bookies)
         failed_count = len(failed_bookies)
         verification_failed_count = len(recovery_verification_failed)
@@ -592,35 +659,32 @@ def execute_bookkeeper_recovery(kconf_key, az, oncall_token="3c89e9b1-5c64-4741-
 
         # 发送汇总消息
         if failed_count == 0:
-            send_oncall_group_message(
-                f"【BK Recovery通知】{summary_msg}",
-                token=oncall_token
-            )
+            print(f"【BK Recovery通知】{summary_msg}")
         else:
-            send_oncall_group_message(
-                f"【BK Recovery告警】{summary_msg}",
-                token=oncall_token
-            )
+            print(f"【BK Recovery告警】{summary_msg}")
 
         return failed_count == 0
 
     except Exception as e:
-        send_oncall_group_message(
-            f"【BK Recovery告警】{cluster_name}: 执行异常: {str(e)}\\n",
-            token=oncall_token
-        )
+        print(f"【BK Recovery告警】{cluster_name}: 执行异常: {str(e)}")
         return False
 
 # 使用示例
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("使用方法:")
-        print("  设置只读: python bk_az_escape.py <kconf_key> readonly <az>")
-        print("  恢复读写: python bk_az_escape.py <kconf_key> recovery <az>")
+        print("  设置只读: python bk_az_escape.py <集群名称> readonly <az>")
+        print("  恢复读写: python bk_az_escape.py <集群名称> recovery <az>")
+        print("  例如: python bk_az_escape.py kop_bk_e6_test readonly HB1AZ1")
         sys.exit(1)
 
-    kconf_key = sys.argv[1]
+    cluster_name = sys.argv[1]
+    # 自动添加infra.bookkeeper.前缀
+    kconf_key = f"infra.bookkeeper.{cluster_name}"
     action = sys.argv[2]
+
+    print(f"集群名称: {cluster_name}")
+    print(f"完整kconf_key: {kconf_key}")
 
     if len(sys.argv) == 4:
         az = sys.argv[3]
@@ -647,13 +711,13 @@ if __name__ == "__main__":
         else:
             print(f"未知的操作: {action}")
             print("使用方法:")
-            print("  设置只读: python bk_az_escape.py <kconf_key> readonly <az>")
-            print("  恢复读写: python bk_az_escape.py <kconf_key> recovery <az>")
+            print("  设置只读: python bk_az_escape.py <集群名称> readonly <az>")
+            print("  恢复读写: python bk_az_escape.py <集群名称> recovery <az>")
             sys.exit(1)
 
     else:
         print("参数错误！")
         print("使用方法:")
-        print("  设置只读: python bk_az_escape.py <kconf_key> readonly <az>")
-        print("  恢复读写: python bk_az_escape.py <kconf_key> recovery <az>")
+        print("  设置只读: python bk_az_escape.py <集群名称> readonly <az>")
+        print("  恢复读写: python bk_az_escape.py <集群名称> recovery <az>")
         sys.exit(1)
