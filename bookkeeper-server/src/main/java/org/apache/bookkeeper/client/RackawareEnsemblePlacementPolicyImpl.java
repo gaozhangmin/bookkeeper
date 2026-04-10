@@ -21,18 +21,28 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIES_JOINED;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIES_LEFT;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.FAILED_TO_RESOLVE_NETWORK_LOCATION_COUNT;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.NEW_ENSEMBLE_FILTER_RACK_BLACKLIST_COUNT;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_FILTER_RACK_BLACKLIST_COUNT;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.CLIENT_SCOPE;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.DISABLE_RACK_BLACK_LIST_CLIENT;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.NUM_WRITABLE_BOOKIES_IN_DEFAULT_RACK;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.READ_REQUESTS_REORDERED;
 import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.UNKNOWN_REGION;
+import static org.apache.bookkeeper.server.http.service.RackBlacklistService.ZK_BLACKLIST_PATH_SUFFIX;
+import static org.apache.zookeeper.Watcher.Event.EventType.NodeCreated;
+import static org.apache.zookeeper.Watcher.Event.EventType.NodeDataChanged;
+import static org.apache.zookeeper.Watcher.Event.EventType.NodeDeleted;
 
 import com.beust.jcommander.internal.Lists;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.netty.util.HashedWheelTimer;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,7 +52,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -70,6 +84,10 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.annotations.StatsDoc;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.zookeeper.AddWatchMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,6 +102,10 @@ import org.slf4j.LoggerFactory;
 )
 public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsemblePlacementPolicy {
 
+    private static final ExecutorService executorService =
+            Executors.newSingleThreadExecutor(new ThreadFactoryBuilder()
+            .setDaemon(true)
+            .setNameFormat("RackawareEnsemblePlacementPolicyImpl-%d").build());
     static final Logger LOG = LoggerFactory.getLogger(RackawareEnsemblePlacementPolicyImpl.class);
     int maxWeightMultiple;
 
@@ -103,6 +125,7 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
     static final int REMOTE_FAIL_MASK = 0x08 << 24;
     static final int READ_ONLY_MASK   = 0x10 << 24;
     static final int SLOW_MASK        = 0x20 << 24;
+    static final int BLACKLISTED_RACK_MASK = 0x30 << 24;
     static final int UNAVAIL_MASK     = 0x40 << 24;
     static final int MASK_BITS        = 0xFFF << 20;
 
@@ -133,8 +156,49 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             help = "Gauge for the number of writable Bookies in default rack"
     )
     protected Gauge<Integer> numWritableBookiesInDefaultRack;
+    @StatsDoc(
+            name = DISABLE_RACK_BLACK_LIST_CLIENT,
+            help = "disable rack blacklist feature"
+    )
+    protected Gauge<Integer> disableRackBlackListClient = null;
 
     private String defaultRack = NetworkTopology.DEFAULT_RACK;
+
+    // Rack blacklist support
+    protected final Set<String> blacklistedRacks = new ConcurrentSkipListSet<>();
+    protected String rackBlacklistZkPath = null;
+    protected ZooKeeper zkClient = null;
+    // 1 means enable, 2 means disable
+    private final AtomicInteger rackBlacklistStatus = new AtomicInteger(1);
+    private final Watcher rackBlacklistWatcher = event -> {
+        executorService.execute(() -> {
+            // Defensive check: ensure zkClient and path are initialized
+            if (zkClient == null || rackBlacklistZkPath == null) {
+                LOG.warn("Rack blacklist watcher triggered but zkClient or path not initialized, ignoring event: {}",
+                        event);
+                return;
+            }
+            if (event.getType() == NodeDataChanged
+                    || event.getType() == NodeCreated) {
+                LOG.info("Rack blacklist changed, reloading from ZooKeeper: {}", event);
+            } else if (event.getType() == NodeDeleted) {
+                LOG.info("Rack blacklist node deleted, clearing blacklist and re-registering watcher");
+            }
+            loadRackBlacklistFromZk();
+        });
+    };
+
+    @StatsDoc(
+            name = NEW_ENSEMBLE_FILTER_RACK_BLACKLIST_COUNT,
+            help = "Counter for write bookies filtered due to rack blacklist"
+    )
+    protected Counter newEnsembleFilterRackBlacklistCounter = null;
+
+        @StatsDoc(
+            name = READ_FILTER_RACK_BLACKLIST_COUNT,
+            help = "Counter for read bookies filtered due to rack blacklist"
+    )
+    protected Counter readBookiesFilterRackBlacklistCounter = null;
 
     RackawareEnsemblePlacementPolicyImpl() {
         this(false);
@@ -223,6 +287,18 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             }
         };
         this.statsLogger.registerGauge(NUM_WRITABLE_BOOKIES_IN_DEFAULT_RACK, numWritableBookiesInDefaultRack);
+        this.disableRackBlackListClient = new Gauge<Integer>() {
+            @Override
+            public Integer getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Integer getSample() {
+                return rackBlacklistStatus.get();
+            }
+        };
+        this.statsLogger.registerGauge(DISABLE_RACK_BLACK_LIST_CLIENT, disableRackBlackListClient);
         this.reorderReadsRandom = reorderReadsRandom;
         this.stabilizePeriodSeconds = stabilizePeriodSeconds;
         this.reorderThresholdPendingRequests = reorderThresholdPendingRequests;
@@ -266,6 +342,11 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
         } else {
             LOG.info("Not weighted");
         }
+
+        // Initialize rack blacklist monitoring
+        this.newEnsembleFilterRackBlacklistCounter = statsLogger.getCounter(NEW_ENSEMBLE_FILTER_RACK_BLACKLIST_COUNT);
+        this.readBookiesFilterRackBlacklistCounter = statsLogger.getCounter(READ_FILTER_RACK_BLACKLIST_COUNT);
+
         return this;
     }
 
@@ -349,6 +430,80 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                 bookieAddressResolver);
     }
 
+    /**
+     * Initialize rack blacklist monitoring from ZooKeeper.
+     *
+     * @param zkClient ZooKeeper client
+     * @param zkLedgersRootPath ZooKeeper ledgers root path
+     */
+    public void initializeExtra(ZooKeeper zkClient, String zkLedgersRootPath) {
+        if (zkClient == null) {
+            LOG.warn("ZooKeeper client is null, rack blacklist feature will be disabled");
+            rackBlacklistStatus.set(2);
+            return;
+        }
+        this.zkClient = zkClient;
+        this.rackBlacklistZkPath = zkLedgersRootPath + ZK_BLACKLIST_PATH_SUFFIX;
+
+        LOG.info("Initializing rack blacklist monitoring from ZooKeeper path: {}", rackBlacklistZkPath);
+        executorService.execute(this::loadRackBlacklistFromZk);
+        executorService.execute(() -> {
+            try {
+                zkClient.addWatch(rackBlacklistZkPath, rackBlacklistWatcher, AddWatchMode.PERSISTENT);
+            } catch (Exception e) {
+                LOG.error("Failed to add watch on rack blacklist path: {}", rackBlacklistZkPath, e);
+            }
+        });
+    }
+
+    /**
+     * Load rack blacklist from ZooKeeper.
+     */
+    protected void loadRackBlacklistFromZk() {
+        try {
+            byte[] data = zkClient.getData(rackBlacklistZkPath, false, null);
+            if (data == null || data.length == 0) {
+                if (!blacklistedRacks.isEmpty()) {
+                    LOG.info("Rack blacklist is empty");
+                }
+                blacklistedRacks.clear();
+                return;
+            }
+
+            String blacklistData = new String(data, StandardCharsets.UTF_8);
+            Set<String> newBlacklist = new HashSet<>();
+            for (String rack : blacklistData.split(",")) {
+                String trimmed = rack.trim();
+                if (!trimmed.isEmpty()) {
+                    newBlacklist.add(trimmed);
+                }
+            }
+            blacklistedRacks.clear();
+            blacklistedRacks.addAll(newBlacklist);
+            LOG.info("Loaded rack blacklist from ZooKeeper: {}", blacklistedRacks);
+        } catch (KeeperException.NoNodeException e) {
+            LOG.info("Rack blacklist node does not exist: {}", rackBlacklistZkPath);
+            blacklistedRacks.clear();
+        } catch (Exception e) {
+            LOG.error("Failed to load rack blacklist from ZooKeeper: {}", rackBlacklistZkPath, e);
+            // todo 打点
+        }
+    }
+
+    /**
+     * Check if a rack is blacklisted.
+     *
+     * @param rack rack name
+     * @return true if the rack is blacklisted
+     */
+    @VisibleForTesting
+    boolean isRackBlacklisted(String rack) {
+        if (rack == null || blacklistedRacks.isEmpty()) {
+            return false;
+        }
+        return blacklistedRacks.contains(rack);
+    }
+
     @Override
     public void uninitalize() {
         // do nothing
@@ -387,6 +542,45 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
         return comprehensiveExclusionBookiesSet;
     }
 
+    /**
+     * Add bookies in blacklisted racks to exclusion set.
+     * This method should be called in readlock scope of 'rwLock'.
+     *
+     * @param excludeBookies current exclude bookies set
+     * @return comprehensive exclusion bookies set including blacklisted rack bookies
+     */
+    protected Set<BookieId> addBlacklistedRackBookies(Set<BookieId> excludeBookies) {
+        if (blacklistedRacks.isEmpty()) {
+            return excludeBookies;
+        }
+
+        Set<BookieId> blacklistedRackBookies = new HashSet<>();
+        for (String blacklistedRack : blacklistedRacks) {
+            Set<Node> rackLeaves = topology.getLeaves(blacklistedRack);
+            for (Node node : rackLeaves) {
+                if (node instanceof BookieNode) {
+                    blacklistedRackBookies.add(((BookieNode) node).getAddr());
+                }
+            }
+        }
+
+        if (blacklistedRackBookies.isEmpty()) {
+            return excludeBookies;
+        }
+
+        Set<BookieId> comprehensiveExclusionBookiesSet = new HashSet<>(excludeBookies);
+        comprehensiveExclusionBookiesSet.addAll(blacklistedRackBookies);
+
+        LOG.info("Rack blacklist is enabled, excluding {} bookies from blacklisted racks: {}, blacklisted bookies: {}",
+                blacklistedRackBookies.size(), blacklistedRacks, blacklistedRackBookies);
+
+        if (newEnsembleFilterRackBlacklistCounter != null) {
+            newEnsembleFilterRackBlacklistCounter.inc();
+        }
+
+        return comprehensiveExclusionBookiesSet;
+    }
+
     @Override
     public PlacementResult<List<BookieId>> newEnsemble(int ensembleSize, int writeQuorumSize,
             int ackQuorumSize, Map<String, byte[]> customMetadata, Set<BookieId> excludeBookies)
@@ -395,9 +589,10 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
         try {
             Set<BookieId> comprehensiveExclusionBookiesSet = addDefaultRackBookiesIfMinNumRacksIsEnforced(
                     excludeBookies);
-            PlacementResult<List<BookieId>> newEnsembleResult = newEnsembleInternal(ensembleSize,
+            // Add blacklisted rack bookies to exclusion set
+            comprehensiveExclusionBookiesSet = addBlacklistedRackBookies(comprehensiveExclusionBookiesSet);
+            return newEnsembleInternal(ensembleSize,
                     writeQuorumSize, ackQuorumSize, comprehensiveExclusionBookiesSet, null, null);
-            return newEnsembleResult;
         } finally {
             rwLock.readLock().unlock();
         }
@@ -507,6 +702,8 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
         rwLock.readLock().lock();
         try {
             excludeBookies = addDefaultRackBookiesIfMinNumRacksIsEnforced(excludeBookies);
+            // Add blacklisted rack bookies to exclusion set
+            excludeBookies = addBlacklistedRackBookies(excludeBookies);
             excludeBookies.addAll(currentEnsemble);
 
             Set<Node> ensembleNodes = new HashSet<>();
@@ -923,8 +1120,13 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             for (int i = 0; i < writeSet.size(); i++) {
                 int idx = writeSet.get(i);
                 BookieId bookieAddr = ensemble.get(idx);
+                BookieNode bookieNode = knownBookies.get(bookieAddr);
+                if (null == bookieNode) {
+                    bookieNode = historyBookies.get(bookieAddr);
+                }
                 if ((!knownBookies.containsKey(bookieAddr) && !readOnlyBookies.contains(bookieAddr))
-                    || slowBookies.getIfPresent(bookieAddr) != null) {
+                    || slowBookies.getIfPresent(bookieAddr) != null
+                    || (bookieNode != null && isRackBlacklisted(bookieNode.getNetworkLocation()))) {
                     // Found at least one bookie not available in the ensemble, or in slowBookies
                     isAnyBookieUnavailable = true;
                     break;
@@ -932,8 +1134,7 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             }
         }
 
-        boolean reordered = false;
-        if (reorderThresholdPendingRequests > 0) {
+        if (reorderThresholdPendingRequests > 0 && !isAnyBookieUnavailable) {
             // if there are no slow or unavailable bookies, capture each bookie's number of
             // pending request to reorder requests based on a threshold of pending requests
 
@@ -963,14 +1164,11 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                             pendingReqs[bestBookieIdx]);
                 }
                 writeSet.moveAndShift(bestBookieIdx, 0);
-                reordered = true;
+                readReorderedCounter.registerSuccessfulValue(1);
             }
         }
 
         if (!isAnyBookieUnavailable) {
-            if (reordered) {
-                readReorderedCounter.registerSuccessfulValue(1);
-            }
             return writeSet;
         }
 
@@ -979,7 +1177,10 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             BookieId address = ensemble.get(idx);
             String region = writeSetWithRegion.get(idx);
             Long lastFailedEntryOnBookie = bookiesHealthInfo.getBookieFailureHistory(address);
-            if (null == knownBookies.get(address)) {
+
+            BookieNode bookieNode = knownBookies.get(address);
+            BookieNode historyBookieNode = historyBookies.get(address);
+            if (null == bookieNode) {
                 // there isn't too much differences between readonly bookies
                 // from unavailable bookies. since there
                 // is no write requests to them, so we shouldn't try reading
@@ -987,6 +1188,11 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                 if ((null == readOnlyBookies)
                     || !readOnlyBookies.contains(address)) {
                     writeSet.set(i, idx | UNAVAIL_MASK);
+                } else if (historyBookieNode != null && isRackBlacklisted(historyBookieNode.getNetworkLocation())) {
+                    writeSet.set(i, idx | BLACKLISTED_RACK_MASK);
+                    if (readBookiesFilterRackBlacklistCounter != null) {
+                        readBookiesFilterRackBlacklistCounter.inc();
+                    }
                 } else {
                     if (slowBookies.getIfPresent(address) != null) {
                         long numPendingReqs = bookiesHealthInfo.getBookiePendingRequests(address);
@@ -997,25 +1203,36 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                         writeSet.set(i, idx | READ_ONLY_MASK);
                     }
                 }
-            } else if (lastFailedEntryOnBookie < 0) {
-                if (slowBookies.getIfPresent(address) != null) {
-                    long numPendingReqs = bookiesHealthInfo.getBookiePendingRequests(address);
-                    long slowIdx = numPendingReqs * ensembleSize + idx;
-                    writeSet.set(i, (int) (slowIdx & ~MASK_BITS) | SLOW_MASK);
-                } else {
-                    if (useRegionAware && !myRegion.equals(region)) {
-                        writeSet.set(i, idx | REMOTE_MASK);
-                    } else {
-                        writeSet.set(i, idx | LOCAL_MASK);
-                    }
-                }
             } else {
-                // use bookies with earlier failed entryIds first
-                long failIdx = lastFailedEntryOnBookie * ensembleSize + idx;
-                if (useRegionAware && !myRegion.equals(region)) {
-                    writeSet.set(i, (int) (failIdx & ~MASK_BITS) | REMOTE_FAIL_MASK);
+                // Check if bookie is in blacklisted rack
+                boolean isInBlacklistedRack = !blacklistedRacks.isEmpty()
+                        && isRackBlacklisted(bookieNode.getNetworkLocation());
+                if (isInBlacklistedRack) {
+                    // Bookies in blacklisted racks are deprioritized but still readable
+                    writeSet.set(i, idx | BLACKLISTED_RACK_MASK);
+                    if (readBookiesFilterRackBlacklistCounter != null) {
+                        readBookiesFilterRackBlacklistCounter.inc();
+                    }
+                } else if (lastFailedEntryOnBookie < 0) {
+                    if (slowBookies.getIfPresent(address) != null) {
+                        long numPendingReqs = bookiesHealthInfo.getBookiePendingRequests(address);
+                        long slowIdx = numPendingReqs * ensembleSize + idx;
+                        writeSet.set(i, (int) (slowIdx & ~MASK_BITS) | SLOW_MASK);
+                    } else {
+                        if (useRegionAware && !myRegion.equals(region)) {
+                            writeSet.set(i, idx | REMOTE_MASK);
+                        } else {
+                            writeSet.set(i, idx | LOCAL_MASK);
+                        }
+                    }
                 } else {
-                    writeSet.set(i, (int) (failIdx & ~MASK_BITS) | LOCAL_FAIL_MASK);
+                    // use bookies with earlier failed entryIds first
+                    long failIdx = lastFailedEntryOnBookie * ensembleSize + idx;
+                    if (useRegionAware && !myRegion.equals(region)) {
+                        writeSet.set(i, (int) (failIdx & ~MASK_BITS) | REMOTE_FAIL_MASK);
+                    } else {
+                        writeSet.set(i, (int) (failIdx & ~MASK_BITS) | LOCAL_FAIL_MASK);
+                    }
                 }
             }
         }
@@ -1035,6 +1252,7 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
             shuffleWithMask(writeSet, LOCAL_MASK, MASK_BITS);
             shuffleWithMask(writeSet, REMOTE_MASK, MASK_BITS);
             shuffleWithMask(writeSet, READ_ONLY_MASK, MASK_BITS);
+            shuffleWithMask(writeSet, BLACKLISTED_RACK_MASK, MASK_BITS);
             shuffleWithMask(writeSet, UNAVAIL_MASK, MASK_BITS);
         }
 

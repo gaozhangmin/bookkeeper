@@ -36,6 +36,7 @@ import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.proto.BookieAddressResolver;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.zookeeper.ZooKeeper;
 
 /**
  * {@link EnsemblePlacementPolicy} encapsulates the algorithm that bookkeeper client uses to select a number of bookies
@@ -220,6 +221,9 @@ public interface EnsemblePlacementPolicy {
                                        StatsLogger statsLogger,
                                        BookieAddressResolver bookieAddressResolver);
 
+    default void initializeExtra(ZooKeeper zkClient, String zkLedgersRootPath) {
+        // no-op
+    }
     /**
      * Uninitialize the policy.
      */

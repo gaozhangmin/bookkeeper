@@ -64,6 +64,8 @@ public abstract class HttpRouter<Handler> {
     public static final String TRIGGER_AUDIT                = "/api/v1/autorecovery/trigger_audit";
     public static final String LOST_BOOKIE_RECOVERY_DELAY   = "/api/v1/autorecovery/lost_bookie_recovery_delay";
     public static final String DECOMMISSION                 = "/api/v1/autorecovery/decommission";
+    // rack blacklist
+    public static final String RACK_BLACKLIST               = "/api/v1/config/rack_blacklist";
 
 
     private final Map<String, Handler> endpointHandlers = new HashMap<>();
@@ -112,6 +114,8 @@ public abstract class HttpRouter<Handler> {
         this.endpointHandlers.put(LOST_BOOKIE_RECOVERY_DELAY,
             handlerFactory.newHandler(HttpServer.ApiType.LOST_BOOKIE_RECOVERY_DELAY));
         this.endpointHandlers.put(DECOMMISSION, handlerFactory.newHandler(HttpServer.ApiType.DECOMMISSION));
+        // rack blacklist
+        this.endpointHandlers.put(RACK_BLACKLIST, handlerFactory.newHandler(HttpServer.ApiType.RACK_BLACK_LIST));
     }
 
     /**

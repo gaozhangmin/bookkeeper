@@ -98,7 +98,9 @@ public interface HttpServer {
         WHO_IS_AUDITOR,
         TRIGGER_AUDIT,
         LOST_BOOKIE_RECOVERY_DELAY,
-        DECOMMISSION
+        DECOMMISSION,
+        // rack blacklist
+        RACK_BLACK_LIST
     }
 
     /**

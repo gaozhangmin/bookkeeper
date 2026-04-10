@@ -69,6 +69,7 @@ import org.apache.bookkeeper.common.util.OrderedScheduler;
 import org.apache.bookkeeper.common.util.ReflectionUtils;
 import org.apache.bookkeeper.conf.AbstractConfiguration;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.discover.ZKRegistrationClient;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.meta.CleanupLedgerManager;
@@ -503,6 +504,27 @@ public class BookKeeper implements org.apache.bookkeeper.client.api.BookKeeper {
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(conf,
                 dnsResolver, this.requestTimer, this.featureProvider, this.statsLogger, bookieAddressResolver);
+
+        // initialize rack blacklist for RackawareEnsemblePlacementPolicy
+        try {
+            ZKRegistrationClient zkRegistrationClient = metadataDriver.getRegistrationClient()
+                    instanceof ZKRegistrationClient ? (ZKRegistrationClient) metadataDriver
+                    .getRegistrationClient()
+                    : null;
+            if (zkRegistrationClient != null) {
+                ZooKeeper zkForRackBlacklist = zkRegistrationClient.getZk();
+
+                if (zkForRackBlacklist != null) {
+                    String zkLedgersRootPath = zkRegistrationClient.getLedgerRootPath();
+                    this.placementPolicy
+                            .initializeExtra(zkForRackBlacklist, zkLedgersRootPath);
+                } else {
+                    LOG.warn("ZooKeeper client not available, rack blacklist feature will be disabled");
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to initialize rack blacklist, feature will be disabled", e);
+        }
 
         this.bookieWatcher = new BookieWatcherImpl(
                 conf, this.placementPolicy, metadataDriver.getRegistrationClient(), bookieAddressResolver,

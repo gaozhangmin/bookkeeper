@@ -1844,4 +1844,8 @@ public class BookKeeperAdmin implements AutoCloseable {
     public BookieId getCurrentAuditor() throws IOException, InterruptedException {
         return getLedgerAuditorManager().getCurrentAuditor();
     }
+
+    public BookKeeper getBookKeeper() {
+        return bkc;
+    }
 }

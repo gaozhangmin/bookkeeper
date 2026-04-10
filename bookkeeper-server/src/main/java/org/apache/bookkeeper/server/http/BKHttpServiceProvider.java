@@ -58,6 +58,7 @@ import org.apache.bookkeeper.server.http.service.ListLedgerService;
 import org.apache.bookkeeper.server.http.service.ListUnderReplicatedLedgerService;
 import org.apache.bookkeeper.server.http.service.LostBookieRecoveryDelayService;
 import org.apache.bookkeeper.server.http.service.MetricsService;
+import org.apache.bookkeeper.server.http.service.RackBlacklistService;
 import org.apache.bookkeeper.server.http.service.ReadLedgerEntryService;
 import org.apache.bookkeeper.server.http.service.RecoveryBookieService;
 import org.apache.bookkeeper.server.http.service.ResumeCompactionService;
@@ -254,7 +255,8 @@ public class BKHttpServiceProvider implements HttpServiceProvider {
                 return new LostBookieRecoveryDelayService(configuration, bka);
             case DECOMMISSION:
                 return new DecommissionService(configuration, bka, executor);
-
+            case RACK_BLACK_LIST:
+                return new RackBlacklistService(configuration, bka);
             default:
                 return new ConfigurationService(configuration);
         }

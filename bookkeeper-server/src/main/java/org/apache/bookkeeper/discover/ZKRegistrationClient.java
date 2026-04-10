@@ -63,6 +63,7 @@ import org.apache.zookeeper.data.Stat;
  */
 
 @Slf4j
+@Getter
 public class ZKRegistrationClient implements RegistrationClient {
 
     static final int ZK_CONNECT_BACKOFF_MS = 200;
@@ -191,6 +192,7 @@ public class ZKRegistrationClient implements RegistrationClient {
     private final Watcher bookieServiceInfoCacheInvalidation;
     private final boolean bookieAddressTracking;
     // registration paths
+    private final String ledgerRootPath;
     private final String bookieRegistrationPath;
     private final String bookieAllRegistrationPath;
     private final String bookieReadonlyRegistrationPath;
@@ -210,6 +212,7 @@ public class ZKRegistrationClient implements RegistrationClient {
         this.bookieAddressTracking = bookieAddressTracking;
         this.bookieServiceInfoCacheInvalidation = bookieAddressTracking
                                                     ? new BookieServiceInfoCacheInvalidationWatcher() : null;
+        this.ledgerRootPath = ledgersRootPath;
         this.bookieRegistrationPath = ledgersRootPath + "/" + AVAILABLE_NODE;
         this.bookieAllRegistrationPath = ledgersRootPath + "/" + COOKIE_NODE;
         this.bookieReadonlyRegistrationPath = this.bookieRegistrationPath + "/" + READONLY;
