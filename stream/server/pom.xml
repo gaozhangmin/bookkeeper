@@ -20,7 +20,7 @@
   <parent>
     <groupId>org.apache.bookkeeper</groupId>
     <artifactId>stream-storage-parent</artifactId>
-    <version>4.17.2.3-kwai</version>
+    <version>4.17.2.4-kwai</version>
   </parent>
   <artifactId>stream-storage-server</artifactId>
   <name>Apache BookKeeper :: Stream Storage :: Server</name>
