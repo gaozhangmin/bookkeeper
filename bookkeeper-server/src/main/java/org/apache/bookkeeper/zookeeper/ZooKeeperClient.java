@@ -248,6 +248,9 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
                 operationRetryPolicy =
                         new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, 0);
             }
+            if (null == hostProvider) {
+                hostProvider = createDefaultHostProvider(connectString);
+            }
 
             // Create a watcher manager
             StatsLogger watcherStatsLogger = statsLogger.scope("watcher");
@@ -264,7 +267,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
                     retryExecThreadCount,
                     requestRateLimit,
                     allowReadOnlyMode,
-                    hostProvider != null ? hostProvider : createDefaultHostProvider(connectString)
+                    hostProvider
             );
             // Wait for connection to be established.
             try {
