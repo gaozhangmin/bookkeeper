@@ -26,6 +26,7 @@ import static org.apache.bookkeeper.util.BookKeeperConstants.EMPTY_BYTE_ARRAY;
 import static org.apache.bookkeeper.util.BookKeeperConstants.READONLY;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
@@ -54,6 +55,9 @@ import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.client.ConnectStringParser;
+import org.apache.zookeeper.client.HostProvider;
+import org.apache.zookeeper.client.StaticHostProvider;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
@@ -207,12 +211,22 @@ public class ZKMetadataDriverBase implements AutoCloseable {
                 + " zkServers = {}, ledgersRootPath = {}.", metadataServiceUriStr, zkServers, ledgersRootPath);
 
             try {
+                final HostProvider hostProvider;
+                final ConnectStringParser connectStringParser = new ConnectStringParser(zkServers);
+                if (conf.getZkHostProviderClass().equals(DnsSrvHostProvider.class.getName())) {
+                    final InetSocketAddress addr = connectStringParser.getServerAddresses().get(0);
+                    hostProvider = new DnsSrvHostProvider(addr.getHostString(), addr.getPort(), null);
+                } else {
+                    hostProvider = new StaticHostProvider(connectStringParser.getServerAddresses());
+                }
+
                 this.zk = ZooKeeperClient.newBuilder()
                     .connectString(zkServers)
                     .sessionTimeoutMs(conf.getZkTimeout())
                     .operationRetryPolicy(zkRetryPolicy)
                     .requestRateLimit(conf.getZkRequestRateLimit())
                     .statsLogger(statsLogger)
+                    .hostProvider(hostProvider)
                     .build();
 
                 if (null == zk.exists(bookieReadonlyRegistrationPath, false)) {

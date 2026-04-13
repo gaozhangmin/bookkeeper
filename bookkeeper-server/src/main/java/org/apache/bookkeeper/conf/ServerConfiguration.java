@@ -189,6 +189,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     // Zookeeper Parameters
     protected static final String ZK_RETRY_BACKOFF_START_MS = "zkRetryBackoffStartMs";
     protected static final String ZK_RETRY_BACKOFF_MAX_MS = "zkRetryBackoffMaxMs";
+    protected static final String ZK_HOST_PROVIDER_CLASS = "zkHostProviderClass";
     protected static final String OPEN_LEDGER_REREPLICATION_GRACE_PERIOD = "openLedgerRereplicationGracePeriod";
     protected static final String LOCK_RELEASE_OF_FAILED_LEDGER_GRACE_PERIOD = "lockReleaseOfFailedLedgerGracePeriod";
     //ReadOnly mode support on all disk full
@@ -1634,6 +1635,27 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setZkRetryBackoffMaxMs(int retryMs) {
         setProperty(ZK_RETRY_BACKOFF_MAX_MS, retryMs);
+        return this;
+    }
+
+    /**
+     * Get the ZooKeeper HostProvider class used to resolve server addresses.
+     *
+     * @return fully-qualified class name, default is StaticHostProvider
+     */
+    public String getZkHostProviderClass() {
+        return getString(ZK_HOST_PROVIDER_CLASS,
+                "org.apache.zookeeper.client.StaticHostProvider");
+    }
+
+    /**
+     * Set the ZooKeeper HostProvider class used to resolve server addresses.
+     *
+     * @param className HostProvider implementation class
+     * @return server configuration
+     */
+    public ServerConfiguration setZkHostProviderClass(String className) {
+        setProperty(ZK_HOST_PROVIDER_CLASS, className);
         return this;
     }
 

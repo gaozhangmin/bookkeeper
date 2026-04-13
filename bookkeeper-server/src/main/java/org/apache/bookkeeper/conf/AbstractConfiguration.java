@@ -75,6 +75,7 @@ public abstract class AbstractConfiguration<T extends AbstractConfiguration>
     protected static final String ZK_TIMEOUT = "zkTimeout";
     protected static final String ZK_SERVERS = "zkServers";
     protected static final String ZK_RETRY_BACKOFF_MAX_RETRIES = "zkRetryBackoffMaxRetries";
+    protected static final String ZK_HOST_PROVIDER_CLASS = "zkHostProviderClass";
 
     // Ledger Manager
     protected static final String LEDGER_MANAGER_TYPE = "ledgerManagerType";
@@ -338,7 +339,7 @@ public abstract class AbstractConfiguration<T extends AbstractConfiguration>
      * @return zookeeper server timeout
      */
     public int getZkTimeout() {
-        return getInt(ZK_TIMEOUT, 10000);
+        return getInt(ZK_TIMEOUT, 30000);
     }
 
     /**
@@ -350,6 +351,27 @@ public abstract class AbstractConfiguration<T extends AbstractConfiguration>
      */
     public T setZkTimeout(int zkTimeout) {
         setProperty(ZK_TIMEOUT, Integer.toString(zkTimeout));
+        return getThis();
+    }
+
+    /**
+     * Get the ZooKeeper HostProvider class used to resolve server addresses.
+     *
+     * @return fully-qualified class name, default is StaticHostProvider
+     */
+    public String getZkHostProviderClass() {
+        return getString(ZK_HOST_PROVIDER_CLASS,
+                "org.apache.zookeeper.client.StaticHostProvider");
+    }
+
+    /**
+     * Set the ZooKeeper HostProvider class used to resolve server addresses.
+     *
+     * @param className HostProvider implementation class
+     * @return server configuration
+     */
+    public T setZkHostProviderClass(String className) {
+        setProperty(ZK_HOST_PROVIDER_CLASS, className);
         return getThis();
     }
 

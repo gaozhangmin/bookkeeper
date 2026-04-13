@@ -30,6 +30,7 @@ import org.apache.bookkeeper.conf.AbstractConfiguration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+import org.apache.zookeeper.client.HostProvider;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -58,6 +59,7 @@ public abstract class ZKMetadataDriverTestBase {
             .thenReturn(mockZkBuilder);
         when(mockZkBuilder.requestRateLimit(anyDouble())).thenReturn(mockZkBuilder);
         when(mockZkBuilder.statsLogger(any(StatsLogger.class))).thenReturn(mockZkBuilder);
+        when(mockZkBuilder.hostProvider(any(HostProvider.class))).thenReturn(mockZkBuilder);
 
         this.mockZkc = mock(ZooKeeperClient.class);
         when(mockZkc.exists(anyString(), eq(false)))

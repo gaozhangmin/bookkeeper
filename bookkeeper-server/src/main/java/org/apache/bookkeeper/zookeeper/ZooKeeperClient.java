@@ -59,6 +59,9 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.client.ConnectStringParser;
+import org.apache.zookeeper.client.HostProvider;
+import org.apache.zookeeper.client.StaticHostProvider;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -77,6 +80,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
     private final String connectString;
     private final int sessionTimeoutMs;
     private final boolean allowReadOnlyMode;
+    private final HostProvider hostProvider;
 
     // state for the zookeeper client
     private final AtomicReference<ZooKeeper> zk = new AtomicReference<ZooKeeper>();
@@ -173,6 +177,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
         int retryExecThreadCount = DEFAULT_RETRY_EXECUTOR_THREAD_COUNT;
         double requestRateLimit = 0;
         boolean allowReadOnlyMode = false;
+        HostProvider hostProvider = null;
 
         private Builder() {}
 
@@ -221,6 +226,11 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
             return this;
         }
 
+        public Builder hostProvider(HostProvider hostProvider) {
+            this.hostProvider = hostProvider;
+            return this;
+        }
+
         public ZooKeeperClient build() throws IOException, KeeperException, InterruptedException {
             checkNotNull(connectString);
             checkArgument(sessionTimeoutMs > 0);
@@ -253,7 +263,8 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
                     statsLogger,
                     retryExecThreadCount,
                     requestRateLimit,
-                    allowReadOnlyMode
+                    allowReadOnlyMode,
+                    hostProvider != null ? hostProvider : createDefaultHostProvider(connectString)
             );
             // Wait for connection to be established.
             try {
@@ -270,6 +281,10 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
         }
     }
 
+    private static HostProvider createDefaultHostProvider(String connectString) {
+        return new StaticHostProvider((new ConnectStringParser(connectString)).getServerAddresses());
+    }
+
     public static Builder newBuilder() {
         return new Builder();
     }
@@ -283,10 +298,27 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
                     int retryExecThreadCount,
                     double rate,
                     boolean allowReadOnlyMode) throws IOException {
-        super(connectString, sessionTimeoutMs, watcherManager, allowReadOnlyMode);
+        this(connectString, sessionTimeoutMs, watcherManager, connectRetryPolicy,
+                operationRetryPolicy, statsLogger, retryExecThreadCount, rate,
+                allowReadOnlyMode,
+                createDefaultHostProvider(connectString));
+    }
+
+    protected ZooKeeperClient(String connectString,
+                    int sessionTimeoutMs,
+                    ZooKeeperWatcherBase watcherManager,
+                    RetryPolicy connectRetryPolicy,
+                    RetryPolicy operationRetryPolicy,
+                    StatsLogger statsLogger,
+                    int retryExecThreadCount,
+                    double rate,
+                    boolean allowReadOnlyMode,
+                    HostProvider hostProvider) throws IOException {
+        super(connectString, sessionTimeoutMs, watcherManager, allowReadOnlyMode, hostProvider);
         this.connectString = connectString;
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.allowReadOnlyMode =  allowReadOnlyMode;
+        this.hostProvider = hostProvider;
         this.watcherManager = watcherManager;
         this.connectRetryPolicy = connectRetryPolicy;
         this.operationRetryPolicy = operationRetryPolicy;
@@ -337,7 +369,12 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher, AutoCloseable
     }
 
     protected ZooKeeper createZooKeeper() throws IOException {
-        return new ZooKeeper(connectString, sessionTimeoutMs, watcherManager, allowReadOnlyMode);
+        return new ZooKeeper(connectString,
+                sessionTimeoutMs,
+                watcherManager,
+                allowReadOnlyMode,
+                hostProvider
+        );
     }
 
     @Override
