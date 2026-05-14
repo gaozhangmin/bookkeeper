@@ -40,6 +40,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -120,6 +121,18 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     final Semaphore addsSemaphore;
     final Semaphore readsSemaphore;
+
+    /**
+     * Tracks total bytes of add requests currently in-flight (pending write completion).
+     * Used together with {@link #maxWriteBytesInProgressLimit} to apply memory back-pressure.
+     */
+    final AtomicLong writeBytesInProgress = new AtomicLong(0);
+
+    /**
+     * Maximum total bytes allowed for in-flight add requests.
+     * 0 means unlimited. When exceeded, new add requests are rejected immediately.
+     */
+    private final long maxWriteBytesInProgressLimit;
 
     final ChannelGroup allChannels;
 
@@ -205,6 +218,8 @@ public class BookieRequestProcessor implements RequestProcessor {
 
         int maxReads = serverCfg.getMaxReadsInProgressLimit();
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
+
+        this.maxWriteBytesInProgressLimit = serverCfg.getMaxWriteBytesInProgressLimit();
     }
 
     protected void onAddRequestStart(Channel channel) {
@@ -651,7 +666,27 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
-        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
+        // Check write memory limit before doing anything else.
+        long accountedBytes = 0L;
+        if (maxWriteBytesInProgressLimit > 0) {
+            final long entrySize = r.getData().readableBytes();
+            final long newTotal = acquireWriteBytes(entrySize);
+            if (newTotal > maxWriteBytesInProgressLimit) {
+                releaseWriteBytes(entrySize);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                            + "inProgress={} bytes, limit={} bytes",
+                            r.ledgerId, r.entryId, newTotal, maxWriteBytesInProgressLimit);
+                }
+                getRequestStats().getAddEntryRejectedCounter().inc();
+                WriteEntryProcessor.sendWriteMemLimitResponse(r, requestHandler, this);
+                return;
+            }
+            // Memory accounted; the processor is responsible for releasing it via releaseWriteBytes().
+            accountedBytes = entrySize;
+        }
+
+        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this, accountedBytes);
 
         // If it's a high priority add (usually as part of recovery process), we want to make sure it gets
         // executed as fast as possible, so bypass the normal writeThreadPool and execute in highPriorityThreadPool
@@ -743,6 +778,28 @@ public class BookieRequestProcessor implements RequestProcessor {
         return blacklistedChannels
                 .map(x -> x.getIfPresent(channel))
                 .orElse(false);
+    }
+
+    /**
+     * Account bytes for an in-flight add request.
+     *
+     * @param bytes number of bytes to account
+     * @return the new total bytes in progress after accounting
+     */
+    public long acquireWriteBytes(long bytes) {
+        return writeBytesInProgress.addAndGet(bytes);
+    }
+
+    /**
+     * Release bytes previously accounted by the write memory limit tracking.
+     * Must be called exactly once per add request that was accepted by
+     * {@link #processAddRequest} when {@code maxWriteBytesInProgressLimit > 0}
+     * and the request was not high-priority.
+     *
+     * @param bytes number of bytes to release (should equal the entry payload size)
+     */
+    public void releaseWriteBytes(long bytes) {
+        writeBytesInProgress.addAndGet(-bytes);
     }
 
     public void handleNonWritableChannel(Channel channel) {

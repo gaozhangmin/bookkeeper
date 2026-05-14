@@ -40,18 +40,44 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     long startTimeNanos;
 
+    /**
+     * Bytes accounted in {@link BookieRequestProcessor#writeBytesInProgress} for this request.
+     * 0 means no accounting was done (high-priority or limit disabled).
+     */
+    private long accountedBytes;
+
     @Override
     protected void reset() {
         super.reset();
         startTimeNanos = -1L;
+        accountedBytes = 0;
     }
 
     public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
                                              BookieRequestProcessor requestProcessor) {
+        return create(request, requestHandler, requestProcessor, 0L);
+    }
+
+    public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
+                                             BookieRequestProcessor requestProcessor, long accountedBytes) {
         WriteEntryProcessor wep = RECYCLER.get();
         wep.init(request, requestHandler, requestProcessor);
+        wep.accountedBytes = accountedBytes;
         requestProcessor.onAddRequestStart(requestHandler.ctx().channel());
         return wep;
+    }
+
+    /**
+     * Send an immediate write-memory-limit rejection response for the given request without
+     * creating a full {@link WriteEntryProcessor}. This avoids any Semaphore acquisition.
+     */
+    static void sendWriteMemLimitResponse(ParsedAddRequest request, BookieRequestHandler requestHandler,
+                                          BookieRequestProcessor requestProcessor) {
+        requestProcessor.getRequestStats().getAddEntryStats()
+                .registerFailedEvent(0, TimeUnit.NANOSECONDS);
+        requestHandler.prepareSendResponseV2(BookieProtocol.ETOOMANYREQUESTS, request);
+        request.release();
+        request.recycle();
     }
 
     @Override
@@ -141,6 +167,11 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     @VisibleForTesting
     void recycle() {
+        // Release write memory accounting. accountedBytes is reset to 0 by reset() below,
+        // so this must be called first.
+        if (accountedBytes > 0L) {
+            requestProcessor.releaseWriteBytes(accountedBytes);
+        }
         reset();
         recyclerHandle.recycle(this);
     }
