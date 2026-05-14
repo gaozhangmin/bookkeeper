@@ -161,6 +161,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     protected static final String MAX_ADDS_IN_PROGRESS_LIMIT = "maxAddsInProgressLimit";
     protected static final String MAX_READS_IN_PROGRESS_LIMIT = "maxReadsInProgressLimit";
     protected static final String MAX_WRITE_BYTES_IN_PROGRESS_LIMIT = "maxWriteBytesInProgressLimit";
+    protected static final String MAX_READ_BYTES_IN_PROGRESS_LIMIT = "maxReadBytesInProgressLimit";
     protected static final String CLOSE_CHANNEL_ON_RESPONSE_TIMEOUT = "closeChannelOnResponseTimeout";
     protected static final String WAIT_TIMEOUT_ON_RESPONSE_BACKPRESSURE = "waitTimeoutOnResponseBackpressureMs";
 
@@ -1077,6 +1078,28 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setMaxWriteBytesInProgressLimit(long value) {
         this.setProperty(MAX_WRITE_BYTES_IN_PROGRESS_LIMIT, value);
+        return this;
+    }
+
+    /**
+     * Get max total bytes of read responses currently in-flight. 0 == unlimited.
+     * When the total size of in-flight read data exceeds this limit,
+     * new read requests will be immediately rejected with ETOOMANYREQUESTS.
+     *
+     * @return Max bytes of read responses in progress. 0 means unlimited.
+     */
+    public long getMaxReadBytesInProgressLimit() {
+        return this.getLong(MAX_READ_BYTES_IN_PROGRESS_LIMIT, 0L);
+    }
+
+    /**
+     * Set max total bytes of read responses currently in-flight. 0 == unlimited.
+     *
+     * @param value max bytes of read responses in progress.
+     * @return server configuration.
+     */
+    public ServerConfiguration setMaxReadBytesInProgressLimit(long value) {
+        this.setProperty(MAX_READ_BYTES_IN_PROGRESS_LIMIT, value);
         return this;
     }
 

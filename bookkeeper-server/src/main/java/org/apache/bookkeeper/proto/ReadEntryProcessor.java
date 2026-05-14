@@ -43,6 +43,13 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
     protected ExecutorService fenceThreadPool;
     protected boolean throttleReadResponses;
 
+    /**
+     * Bytes accounted in {@link BookieRequestProcessor#readBytesInProgress} for this request.
+     * Set after {@link #readData()} returns, released in {@link #recycle()}.
+     * 0 means no accounting (high-priority/fencing reads, or limit disabled).
+     */
+    protected long accountedReadBytes;
+
     public static ReadEntryProcessor create(ReadRequest request,
                                             BookieRequestHandler requestHandler,
                                             BookieRequestProcessor requestProcessor,
@@ -52,6 +59,7 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
         rep.init(request, requestHandler, requestProcessor);
         rep.fenceThreadPool = fenceThreadPool;
         rep.throttleReadResponses = throttleReadResponses;
+        rep.accountedReadBytes = 0L;
         requestProcessor.onReadRequestStart(requestHandler.ctx().channel());
         return rep;
     }
@@ -87,6 +95,10 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
                 }
             }
             data = readData();
+            if (data != null) {
+                accountedReadBytes = dataSize(data);
+                requestProcessor.acquireReadBytes(accountedReadBytes);
+            }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("##### Read entry ##### -- ref-count: {}",  data.refCnt());
             }
@@ -123,6 +135,15 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
 
     protected ReferenceCounted readData() throws Exception {
         return requestProcessor.getBookie().readEntry(request.getLedgerId(), request.getEntryId());
+    }
+
+    /**
+     * Returns the readable byte size of the data returned by {@link #readData()}.
+     * Subclasses that return a different type (e.g. {@link org.apache.bookkeeper.util.ByteBufList})
+     * should override this method accordingly.
+     */
+    protected long dataSize(ReferenceCounted data) {
+        return ((ByteBuf) data).readableBytes();
     }
 
     private void sendResponse(ReferenceCounted data, int errorCode, long startTimeNanos) {
@@ -193,6 +214,9 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
     }
 
     void recycle() {
+        if (accountedReadBytes > 0L) {
+            requestProcessor.releaseReadBytes(accountedReadBytes);
+        }
         request.recycle();
         super.reset();
         if (this.recyclerHandle != null) {

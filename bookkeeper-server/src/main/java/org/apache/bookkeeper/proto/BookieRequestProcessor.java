@@ -134,6 +134,18 @@ public class BookieRequestProcessor implements RequestProcessor {
      */
     private final long maxWriteBytesInProgressLimit;
 
+    /**
+     * Tracks total bytes of read responses currently in-flight (data read but not yet recycled).
+     * Used together with {@link #maxReadBytesInProgressLimit} to apply memory back-pressure.
+     */
+    final AtomicLong readBytesInProgress = new AtomicLong(0);
+
+    /**
+     * Maximum total bytes allowed for in-flight read responses.
+     * 0 means unlimited. When exceeded, new read requests are rejected immediately.
+     */
+    private final long maxReadBytesInProgressLimit;
+
     final ChannelGroup allChannels;
 
     // to temporary blacklist channels
@@ -220,6 +232,7 @@ public class BookieRequestProcessor implements RequestProcessor {
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
 
         this.maxWriteBytesInProgressLimit = serverCfg.getMaxWriteBytesInProgressLimit();
+        this.maxReadBytesInProgressLimit = serverCfg.getMaxReadBytesInProgressLimit();
     }
 
     protected void onAddRequestStart(Channel channel) {
@@ -721,6 +734,21 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processReadRequest(final BookieProtocol.ReadRequest r, final BookieRequestHandler requestHandler) {
+        // Check read memory limit before creating processor.
+        if (maxReadBytesInProgressLimit > 0) {
+            long readBytesInProgressNow = getReadBytesInProgress();
+            if (readBytesInProgressNow >= maxReadBytesInProgressLimit) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting read request for entry {}:{} due to read memory limit: "
+                            + "inProgress={} bytes, limit={} bytes",
+                            r.ledgerId, r.entryId, readBytesInProgressNow, maxReadBytesInProgressLimit);
+                }
+                getRequestStats().getReadEntryRejectedCounter().inc();
+                r.recycle();
+                return;
+            }
+        }
+
         ExecutorService fenceThreadPool =
                 null == highPriorityThreadPool ? null : highPriorityThreadPool.chooseThread(requestHandler.ctx());
         ReadEntryProcessor read = r instanceof BookieProtocol.BatchedReadRequest
@@ -792,14 +820,40 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     /**
      * Release bytes previously accounted by the write memory limit tracking.
-     * Must be called exactly once per add request that was accepted by
-     * {@link #processAddRequest} when {@code maxWriteBytesInProgressLimit > 0}
-     * and the request was not high-priority.
      *
      * @param bytes number of bytes to release (should equal the entry payload size)
      */
     public void releaseWriteBytes(long bytes) {
         writeBytesInProgress.addAndGet(-bytes);
+    }
+
+    /**
+     * Get the current number of read bytes in progress.
+     *
+     * @return the current read bytes in progress
+     */
+    public long getReadBytesInProgress() {
+        return readBytesInProgress.get();
+    }
+
+    /**
+     * Account bytes for an in-flight read response.
+     * Called by {@link ReadEntryProcessor} after data is read from storage.
+     *
+     * @param bytes number of bytes to account
+     */
+    public void acquireReadBytes(long bytes) {
+        readBytesInProgress.addAndGet(bytes);
+    }
+
+    /**
+     * Release bytes previously accounted by the read memory limit tracking.
+     * Called by {@link ReadEntryProcessor} on recycle.
+     *
+     * @param bytes number of bytes to release
+     */
+    public void releaseReadBytes(long bytes) {
+        readBytesInProgress.addAndGet(-bytes);
     }
 
     public void handleNonWritableChannel(Channel channel) {

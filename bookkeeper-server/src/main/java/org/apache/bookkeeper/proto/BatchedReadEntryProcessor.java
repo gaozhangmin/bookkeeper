@@ -86,6 +86,11 @@ public class BatchedReadEntryProcessor extends ReadEntryProcessor {
     }
 
     @Override
+    protected long dataSize(ReferenceCounted data) {
+        return ((ByteBufList) data).readableBytes();
+    }
+
+    @Override
     public String toString() {
         BatchedReadRequest br = (BatchedReadRequest) request;
         return String.format("BatchedReadEntry(%d, %d %d, %d)", br.getLedgerId(), br.getEntryId(), br.getMaxCount(),
@@ -93,6 +98,9 @@ public class BatchedReadEntryProcessor extends ReadEntryProcessor {
     }
 
     protected void recycle() {
+        if (accountedReadBytes > 0L) {
+            requestProcessor.releaseReadBytes(accountedReadBytes);
+        }
         request.recycle();
         super.reset();
         if (this.recyclerHandle != null) {
