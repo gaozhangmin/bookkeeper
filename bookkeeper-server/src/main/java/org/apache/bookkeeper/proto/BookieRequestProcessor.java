@@ -21,6 +21,8 @@
 package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_BYTES_IN_PROGRESS;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
 import static org.apache.bookkeeper.proto.RequestUtils.hasFlag;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -51,6 +53,7 @@ import org.apache.bookkeeper.common.util.MathUtils;
 import org.apache.bookkeeper.common.util.OrderedExecutor;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.processor.RequestProcessor;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.tls.SecurityException;
 import org.apache.bookkeeper.tls.SecurityHandlerFactory;
@@ -233,6 +236,31 @@ public class BookieRequestProcessor implements RequestProcessor {
 
         this.maxWriteBytesInProgressLimit = serverCfg.getMaxWriteBytesInProgressLimit();
         this.maxReadBytesInProgressLimit = serverCfg.getMaxReadBytesInProgressLimit();
+
+        // Register bytes in progress gauges
+        statsLogger.registerGauge(WRITE_BYTES_IN_PROGRESS, new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return writeBytesInProgress.get();
+            }
+        });
+
+        statsLogger.registerGauge(READ_BYTES_IN_PROGRESS, new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return readBytesInProgress.get();
+            }
+        });
     }
 
     protected void onAddRequestStart(Channel channel) {

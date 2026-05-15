@@ -100,6 +100,10 @@ public interface BookKeeperServerStats {
     String READ_ENTRY_BLOCKED = "READ_ENTRY_BLOCKED";
     String READ_ENTRY_BLOCKED_WAIT = "READ_ENTRY_BLOCKED_WAIT";
 
+    // Bytes In Progress
+    String WRITE_BYTES_IN_PROGRESS = "WRITE_BYTES_IN_PROGRESS";
+    String READ_BYTES_IN_PROGRESS = "READ_BYTES_IN_PROGRESS";
+
     //
     // Journal Stats (scoped under SERVER_SCOPE)
     //
