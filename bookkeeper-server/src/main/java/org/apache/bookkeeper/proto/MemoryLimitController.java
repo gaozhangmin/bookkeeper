@@ -108,12 +108,16 @@ public class MemoryLimitController {
         if (maxWriteBytesLimit <= 0) {
             return false; // unlimited, not accounted either
         }
-        long newTotal = writeBytesInProgress.addAndGet(bytes);
-        if (newTotal > maxWriteBytesLimit) {
-            writeBytesInProgress.addAndGet(-bytes);
-            return true; // over limit → reject
+        while (true) {
+            long current = writeBytesInProgress.get();
+            long newTotal = current + bytes;
+            if (newTotal > maxWriteBytesLimit) {
+                return true; // over limit → reject
+            }
+            if (writeBytesInProgress.compareAndSet(current, newTotal)) {
+                return false; // accepted and accounted
+            }
         }
-        return false; // accepted and accounted
     }
 
     /**
