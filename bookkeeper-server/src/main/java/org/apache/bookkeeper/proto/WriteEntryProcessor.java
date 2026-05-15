@@ -40,13 +40,13 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     long startTimeNanos;
 
-    private long accountedBytes;
+    private long needReleaseBytes;
 
     @Override
     protected void reset() {
         super.reset();
         startTimeNanos = -1L;
-        accountedBytes = 0;
+        needReleaseBytes = 0;
     }
 
     public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
@@ -61,7 +61,7 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
     protected void init(ParsedAddRequest request, BookieRequestHandler requestHandler,
                         BookieRequestProcessor requestProcessor) {
         super.init(request, requestHandler, requestProcessor);
-        accountedBytes = request.getData().readableBytes();
+        needReleaseBytes = 0;
     }
 
     @Override
@@ -151,13 +151,13 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     @VisibleForTesting
     void recycle() {
-        // Release write memory accounting. accountedBytes is reset to 0 by reset() below,
-        // so this must be called first.
-        if (accountedBytes > 0L) {
-            requestProcessor.getMemoryLimitController().releaseWriteBytes(accountedBytes);
-        }
+        requestProcessor.getMemoryLimitController().releaseWriteBytes(needReleaseBytes);
         reset();
         recyclerHandle.recycle(this);
+    }
+
+    public void setNeedReleaseBytes(long needReleaseBytes) {
+        this.needReleaseBytes = needReleaseBytes;
     }
 
     private final Recycler.Handle<WriteEntryProcessor> recyclerHandle;

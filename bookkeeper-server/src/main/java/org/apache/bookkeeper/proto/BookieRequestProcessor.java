@@ -659,9 +659,11 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
+        final long entrySize = r.getData().readableBytes();
+        final boolean limitExceeded = memoryLimitController.tryAcquireWriteBytes(entrySize);
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
-
-        if (memoryLimitController.tryAcquireWriteBytes(r.getData().readableBytes())) {
+        write.setNeedReleaseBytes(limitExceeded ? 0 : entrySize);
+        if (limitExceeded) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
                         + "inProgress={} bytes, limit={} bytes",
