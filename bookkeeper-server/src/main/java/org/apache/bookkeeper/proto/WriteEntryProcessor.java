@@ -151,7 +151,9 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     @VisibleForTesting
     void recycle() {
-        requestProcessor.getMemoryLimitController().releaseWriteBytes(needReleaseBytes);
+        if (needReleaseBytes > 0) {
+            requestProcessor.getMemoryLimitController().releaseWriteBytes(needReleaseBytes);
+        }
         reset();
         recyclerHandle.recycle(this);
     }
