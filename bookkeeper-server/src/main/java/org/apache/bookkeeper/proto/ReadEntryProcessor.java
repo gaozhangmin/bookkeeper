@@ -97,7 +97,7 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
             data = readData();
             if (data != null) {
                 accountedReadBytes = dataSize(data);
-                requestProcessor.acquireReadBytes(accountedReadBytes);
+                requestProcessor.getMemoryLimitController().acquireReadBytes(accountedReadBytes);
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("##### Read entry ##### -- ref-count: {}",  data.refCnt());
@@ -215,7 +215,7 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
 
     void recycle() {
         if (accountedReadBytes > 0L) {
-            requestProcessor.releaseReadBytes(accountedReadBytes);
+            requestProcessor.getMemoryLimitController().releaseReadBytes(accountedReadBytes);
         }
         request.recycle();
         super.reset();

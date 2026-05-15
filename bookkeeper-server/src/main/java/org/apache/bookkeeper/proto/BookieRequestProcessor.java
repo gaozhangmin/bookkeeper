@@ -787,21 +787,6 @@ public class BookieRequestProcessor implements RequestProcessor {
                 .orElse(false);
     }
 
-    /** Delegates to {@link MemoryLimitController#releaseWriteBytes(long)}. */
-    public void releaseWriteBytes(long bytes) {
-        memoryLimitController.releaseWriteBytes(bytes);
-    }
-
-    /** Delegates to {@link MemoryLimitController#acquireReadBytes(long)}. */
-    public void acquireReadBytes(long bytes) {
-        memoryLimitController.acquireReadBytes(bytes);
-    }
-
-    /** Delegates to {@link MemoryLimitController#releaseReadBytes(long)}. */
-    public void releaseReadBytes(long bytes) {
-        memoryLimitController.releaseReadBytes(bytes);
-    }
-
     public void handleNonWritableChannel(Channel channel) {
         onResponseTimeout.accept(channel);
     }

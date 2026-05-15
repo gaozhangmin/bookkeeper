@@ -170,7 +170,7 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
         // Release write memory accounting. accountedBytes is reset to 0 by reset() below,
         // so this must be called first.
         if (accountedBytes > 0L) {
-            requestProcessor.releaseWriteBytes(accountedBytes);
+            requestProcessor.getMemoryLimitController().releaseWriteBytes(accountedBytes);
         }
         reset();
         recyclerHandle.recycle(this);
