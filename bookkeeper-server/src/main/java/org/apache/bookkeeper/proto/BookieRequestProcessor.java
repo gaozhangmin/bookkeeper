@@ -659,28 +659,19 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
-        // Check write memory limit before doing anything else.
-        // High-priority requests (e.g. recovery adds) bypass the memory limit to avoid blocking recovery.
-        long accountedBytes = 0L;
-        if (!r.isHighPriority()) {
-            final long entrySize = r.getData().readableBytes();
-            if (memoryLimitController.tryAcquireWriteBytes(entrySize)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
-                            + "inProgress={} bytes, limit={} bytes",
-                            r.ledgerId, r.entryId, memoryLimitController.getWriteBytesInProgress(),
-                            memoryLimitController.getMaxWriteBytesLimit());
-                }
-                getRequestStats().getAddEntryRejectedCounter().inc();
-                WriteEntryProcessor.sendWriteMemLimitResponse(r, requestHandler, this);
-                return;
+        if (memoryLimitController.tryAcquireWriteBytes(r.getData().readableBytes())) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                        + "inProgress={} bytes, limit={} bytes",
+                        r.ledgerId, r.entryId, memoryLimitController.getWriteBytesInProgress(),
+                        memoryLimitController.getMaxWriteBytesLimit());
             }
-            // When limit is disabled (0), tryAcquireWriteBytes returns false but bytes are NOT
-            // accounted; accountedBytes stays 0.
-            accountedBytes = memoryLimitController.getMaxWriteBytesLimit() > 0 ? entrySize : 0L;
+            getRequestStats().getAddEntryRejectedCounter().inc();
+            WriteEntryProcessor.sendWriteMemLimitResponse(r, requestHandler, this);
+            return;
         }
 
-        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this, accountedBytes);
+        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
 
         // If it's a high priority add (usually as part of recovery process), we want to make sure it gets
         // executed as fast as possible, so bypass the normal writeThreadPool and execute in highPriorityThreadPool

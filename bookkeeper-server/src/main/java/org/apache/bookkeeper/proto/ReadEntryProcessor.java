@@ -43,11 +43,6 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
     protected ExecutorService fenceThreadPool;
     protected boolean throttleReadResponses;
 
-    /**
-     * Bytes accounted in {@link BookieRequestProcessor#readBytesInProgress} for this request.
-     * Set after {@link #readData()} returns, released in {@link #recycle()}.
-     * 0 means no accounting (high-priority/fencing reads, or limit disabled).
-     */
     protected long accountedReadBytes;
 
     public static ReadEntryProcessor create(ReadRequest request,

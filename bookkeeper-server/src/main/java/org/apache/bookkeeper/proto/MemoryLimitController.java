@@ -94,19 +94,22 @@ public class MemoryLimitController {
     /**
      * Attempts to account {@code bytes} for a new write request.
      *
-     * <p>If the limit is disabled (0) or the new total would not exceed the limit,
-     * the bytes are atomically added to {@link #writeBytesInProgress} and {@code false} is returned
-     * (meaning the request is accepted and bytes are accounted).
+     * <p>The bytes are always added to {@link #writeBytesInProgress} (for monitoring).
+     * If the limit is enabled ({@code > 0}) and the new total would exceed it,
+     * the bytes are subtracted back and {@code true} is returned (request should be rejected).
+     * Otherwise {@code false} is returned (request is accepted and bytes are accounted).
      *
-     * <p>If the new total would exceed the limit, nothing is changed and {@code true} is returned
-     * (meaning the request should be rejected).
+     * <p>When the limit is disabled ({@code <= 0}), bytes are still tracked but the
+     * request is never rejected.
      *
      * @param bytes the size of the new request
      * @return {@code true} if the request should be rejected; {@code false} if accepted and accounted
      */
     public boolean tryAcquireWriteBytes(long bytes) {
         if (maxWriteBytesLimit <= 0) {
-            return false; // unlimited, not accounted either
+            // Limit disabled: still track bytes for monitoring, but never reject.
+            writeBytesInProgress.addAndGet(bytes);
+            return false;
         }
         while (true) {
             long current = writeBytesInProgress.get();

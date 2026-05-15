@@ -40,10 +40,6 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     long startTimeNanos;
 
-    /**
-     * Bytes accounted in {@link BookieRequestProcessor#writeBytesInProgress} for this request.
-     * 0 means no accounting was done (high-priority or limit disabled).
-     */
     private long accountedBytes;
 
     @Override
@@ -55,16 +51,17 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
                                              BookieRequestProcessor requestProcessor) {
-        return create(request, requestHandler, requestProcessor, 0L);
-    }
-
-    public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
-                                             BookieRequestProcessor requestProcessor, long accountedBytes) {
         WriteEntryProcessor wep = RECYCLER.get();
         wep.init(request, requestHandler, requestProcessor);
-        wep.accountedBytes = accountedBytes;
         requestProcessor.onAddRequestStart(requestHandler.ctx().channel());
         return wep;
+    }
+
+    @Override
+    protected void init(ParsedAddRequest request, BookieRequestHandler requestHandler,
+                        BookieRequestProcessor requestProcessor) {
+        super.init(request, requestHandler, requestProcessor);
+        accountedBytes = request.getData().readableBytes();
     }
 
     /**
