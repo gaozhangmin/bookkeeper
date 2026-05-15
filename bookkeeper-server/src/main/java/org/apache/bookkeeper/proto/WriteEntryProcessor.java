@@ -64,19 +64,6 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
         accountedBytes = request.getData().readableBytes();
     }
 
-    /**
-     * Send an immediate write-memory-limit rejection response for the given request without
-     * creating a full {@link WriteEntryProcessor}. This avoids any Semaphore acquisition.
-     */
-    static void sendWriteMemLimitResponse(ParsedAddRequest request, BookieRequestHandler requestHandler,
-                                          BookieRequestProcessor requestProcessor) {
-        requestProcessor.getRequestStats().getAddEntryStats()
-                .registerFailedEvent(0, TimeUnit.NANOSECONDS);
-        requestHandler.prepareSendResponseV2(BookieProtocol.ETOOMANYREQUESTS, request);
-        request.release();
-        request.recycle();
-    }
-
     @Override
     protected void processPacket() {
         if (requestProcessor.getBookie().isReadOnly()

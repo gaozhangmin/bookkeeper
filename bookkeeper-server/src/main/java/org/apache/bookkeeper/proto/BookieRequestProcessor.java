@@ -659,6 +659,8 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
+        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
+
         if (memoryLimitController.tryAcquireWriteBytes(r.getData().readableBytes())) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
@@ -667,11 +669,15 @@ public class BookieRequestProcessor implements RequestProcessor {
                         memoryLimitController.getMaxWriteBytesLimit());
             }
             getRequestStats().getAddEntryRejectedCounter().inc();
-            WriteEntryProcessor.sendWriteMemLimitResponse(r, requestHandler, this);
+            write.sendWriteReqResponse(
+                    BookieProtocol.ETOOMANYREQUESTS,
+                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                    requestStats.getAddRequestStats());
+            r.release();
+            r.recycle();
+            write.recycle();
             return;
         }
-
-        WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
 
         // If it's a high priority add (usually as part of recovery process), we want to make sure it gets
         // executed as fast as possible, so bypass the normal writeThreadPool and execute in highPriorityThreadPool
@@ -706,7 +712,14 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processReadRequest(final BookieProtocol.ReadRequest r, final BookieRequestHandler requestHandler) {
-        // Check read memory limit before creating processor.
+        ExecutorService fenceThreadPool =
+                null == highPriorityThreadPool ? null : highPriorityThreadPool.chooseThread(requestHandler.ctx());
+        ReadEntryProcessor read = r instanceof BookieProtocol.BatchedReadRequest
+                ? BatchedReadEntryProcessor.create((BookieProtocol.BatchedReadRequest) r, requestHandler,
+                this, fenceThreadPool, throttleReadResponses, serverCfg.getMaxBatchReadSize())
+                : ReadEntryProcessor.create(r, requestHandler,
+                        this, fenceThreadPool, throttleReadResponses);
+
         if (memoryLimitController.isReadMemoryLimitExceeded()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Rejecting read request for entry {}:{} due to read memory limit: "
@@ -715,17 +728,14 @@ public class BookieRequestProcessor implements RequestProcessor {
                         memoryLimitController.getMaxReadBytesLimit());
             }
             getRequestStats().getReadEntryRejectedCounter().inc();
-            r.recycle();
+            read.sendResponse(
+                    BookieProtocol.ETOOMANYREQUESTS,
+                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                    requestStats.getReadRequestStats());
+            onReadRequestFinish();
+            read.recycle();
             return;
         }
-
-        ExecutorService fenceThreadPool =
-                null == highPriorityThreadPool ? null : highPriorityThreadPool.chooseThread(requestHandler.ctx());
-        ReadEntryProcessor read = r instanceof BookieProtocol.BatchedReadRequest
-                ? BatchedReadEntryProcessor.create((BookieProtocol.BatchedReadRequest) r, requestHandler,
-                this, fenceThreadPool, throttleReadResponses, serverCfg.getMaxBatchReadSize())
-                : ReadEntryProcessor.create(r, requestHandler,
-                        this, fenceThreadPool, throttleReadResponses);
 
         // If it's a high priority read (fencing or as part of recovery process), we want to make sure it
         // gets executed as fast as possible, so bypass the normal readThreadPool
