@@ -21,8 +21,6 @@
 package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_BYTES_IN_PROGRESS;
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
 import static org.apache.bookkeeper.proto.RequestUtils.hasFlag;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -42,7 +40,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -53,7 +50,6 @@ import org.apache.bookkeeper.common.util.MathUtils;
 import org.apache.bookkeeper.common.util.OrderedExecutor;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.processor.RequestProcessor;
-import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.tls.SecurityException;
 import org.apache.bookkeeper.tls.SecurityHandlerFactory;
@@ -125,29 +121,8 @@ public class BookieRequestProcessor implements RequestProcessor {
     final Semaphore addsSemaphore;
     final Semaphore readsSemaphore;
 
-    /**
-     * Tracks total bytes of add requests currently in-flight (pending write completion).
-     * Used together with {@link #maxWriteBytesInProgressLimit} to apply memory back-pressure.
-     */
-    final AtomicLong writeBytesInProgress = new AtomicLong(0);
-
-    /**
-     * Maximum total bytes allowed for in-flight add requests.
-     * 0 means unlimited. When exceeded, new add requests are rejected immediately.
-     */
-    private final long maxWriteBytesInProgressLimit;
-
-    /**
-     * Tracks total bytes of read responses currently in-flight (data read but not yet recycled).
-     * Used together with {@link #maxReadBytesInProgressLimit} to apply memory back-pressure.
-     */
-    final AtomicLong readBytesInProgress = new AtomicLong(0);
-
-    /**
-     * Maximum total bytes allowed for in-flight read responses.
-     * 0 means unlimited. When exceeded, new read requests are rejected immediately.
-     */
-    private final long maxReadBytesInProgressLimit;
+    /** Controls write and read memory back-pressure. */
+    final MemoryLimitController memoryLimitController;
 
     final ChannelGroup allChannels;
 
@@ -234,33 +209,10 @@ public class BookieRequestProcessor implements RequestProcessor {
         int maxReads = serverCfg.getMaxReadsInProgressLimit();
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
 
-        this.maxWriteBytesInProgressLimit = serverCfg.getMaxWriteBytesInProgressLimit();
-        this.maxReadBytesInProgressLimit = serverCfg.getMaxReadBytesInProgressLimit();
-
-        // Register bytes in progress gauges
-        statsLogger.registerGauge(WRITE_BYTES_IN_PROGRESS, new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return writeBytesInProgress.get();
-            }
-        });
-
-        statsLogger.registerGauge(READ_BYTES_IN_PROGRESS, new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return readBytesInProgress.get();
-            }
-        });
+        this.memoryLimitController = new MemoryLimitController(
+                serverCfg.getMaxWriteBytesInProgressLimit(),
+                serverCfg.getMaxReadBytesInProgressLimit(),
+                statsLogger);
     }
 
     protected void onAddRequestStart(Channel channel) {
@@ -708,23 +660,24 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
         // Check write memory limit before doing anything else.
+        // High-priority requests (e.g. recovery adds) bypass the memory limit to avoid blocking recovery.
         long accountedBytes = 0L;
-        if (maxWriteBytesInProgressLimit > 0) {
+        if (!r.isHighPriority()) {
             final long entrySize = r.getData().readableBytes();
-            final long newTotal = acquireWriteBytes(entrySize);
-            if (newTotal > maxWriteBytesInProgressLimit) {
-                releaseWriteBytes(entrySize);
+            if (memoryLimitController.tryAcquireWriteBytes(entrySize)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
                             + "inProgress={} bytes, limit={} bytes",
-                            r.ledgerId, r.entryId, newTotal, maxWriteBytesInProgressLimit);
+                            r.ledgerId, r.entryId, memoryLimitController.getWriteBytesInProgress(),
+                            memoryLimitController.getMaxWriteBytesLimit());
                 }
                 getRequestStats().getAddEntryRejectedCounter().inc();
                 WriteEntryProcessor.sendWriteMemLimitResponse(r, requestHandler, this);
                 return;
             }
-            // Memory accounted; the processor is responsible for releasing it via releaseWriteBytes().
-            accountedBytes = entrySize;
+            // When limit is disabled (0), tryAcquireWriteBytes returns false but bytes are NOT
+            // accounted; accountedBytes stays 0.
+            accountedBytes = memoryLimitController.getMaxWriteBytesLimit() > 0 ? entrySize : 0L;
         }
 
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this, accountedBytes);
@@ -763,18 +716,16 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processReadRequest(final BookieProtocol.ReadRequest r, final BookieRequestHandler requestHandler) {
         // Check read memory limit before creating processor.
-        if (maxReadBytesInProgressLimit > 0) {
-            long readBytesInProgressNow = getReadBytesInProgress();
-            if (readBytesInProgressNow >= maxReadBytesInProgressLimit) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Rejecting read request for entry {}:{} due to read memory limit: "
-                            + "inProgress={} bytes, limit={} bytes",
-                            r.ledgerId, r.entryId, readBytesInProgressNow, maxReadBytesInProgressLimit);
-                }
-                getRequestStats().getReadEntryRejectedCounter().inc();
-                r.recycle();
-                return;
+        if (memoryLimitController.isReadMemoryLimitExceeded()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Rejecting read request for entry {}:{} due to read memory limit: "
+                        + "inProgress={} bytes, limit={} bytes",
+                        r.ledgerId, r.entryId, memoryLimitController.getReadBytesInProgress(),
+                        memoryLimitController.getMaxReadBytesLimit());
             }
+            getRequestStats().getReadEntryRejectedCounter().inc();
+            r.recycle();
+            return;
         }
 
         ExecutorService fenceThreadPool =
@@ -836,52 +787,19 @@ public class BookieRequestProcessor implements RequestProcessor {
                 .orElse(false);
     }
 
-    /**
-     * Account bytes for an in-flight add request.
-     *
-     * @param bytes number of bytes to account
-     * @return the new total bytes in progress after accounting
-     */
-    public long acquireWriteBytes(long bytes) {
-        return writeBytesInProgress.addAndGet(bytes);
-    }
-
-    /**
-     * Release bytes previously accounted by the write memory limit tracking.
-     *
-     * @param bytes number of bytes to release (should equal the entry payload size)
-     */
+    /** Delegates to {@link MemoryLimitController#releaseWriteBytes(long)}. */
     public void releaseWriteBytes(long bytes) {
-        writeBytesInProgress.addAndGet(-bytes);
+        memoryLimitController.releaseWriteBytes(bytes);
     }
 
-    /**
-     * Get the current number of read bytes in progress.
-     *
-     * @return the current read bytes in progress
-     */
-    public long getReadBytesInProgress() {
-        return readBytesInProgress.get();
-    }
-
-    /**
-     * Account bytes for an in-flight read response.
-     * Called by {@link ReadEntryProcessor} after data is read from storage.
-     *
-     * @param bytes number of bytes to account
-     */
+    /** Delegates to {@link MemoryLimitController#acquireReadBytes(long)}. */
     public void acquireReadBytes(long bytes) {
-        readBytesInProgress.addAndGet(bytes);
+        memoryLimitController.acquireReadBytes(bytes);
     }
 
-    /**
-     * Release bytes previously accounted by the read memory limit tracking.
-     * Called by {@link ReadEntryProcessor} on recycle.
-     *
-     * @param bytes number of bytes to release
-     */
+    /** Delegates to {@link MemoryLimitController#releaseReadBytes(long)}. */
     public void releaseReadBytes(long bytes) {
-        readBytesInProgress.addAndGet(-bytes);
+        memoryLimitController.releaseReadBytes(bytes);
     }
 
     public void handleNonWritableChannel(Channel channel) {
