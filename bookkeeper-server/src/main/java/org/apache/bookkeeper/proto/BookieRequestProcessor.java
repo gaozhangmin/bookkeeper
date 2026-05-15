@@ -670,14 +670,7 @@ public class BookieRequestProcessor implements RequestProcessor {
                         r.ledgerId, r.entryId, memoryLimitController.getWriteBytesInProgress(),
                         memoryLimitController.getMaxWriteBytesLimit());
             }
-            getRequestStats().getAddEntryRejectedCounter().inc();
-            write.sendWriteReqResponse(
-                    BookieProtocol.ETOOMANYREQUESTS,
-                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                    requestStats.getAddRequestStats());
-            r.release();
-            r.recycle();
-            write.recycle();
+            rejectAddRequest(write, r);
             return;
         }
 
@@ -700,15 +693,7 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to add entry at {}:{}. Too many pending requests", r.ledgerId,
                             r.entryId);
                 }
-                getRequestStats().getAddEntryRejectedCounter().inc();
-
-                write.sendWriteReqResponse(
-                    BookieProtocol.ETOOMANYREQUESTS,
-                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                    requestStats.getAddRequestStats());
-                r.release();
-                r.recycle();
-                write.recycle();
+                rejectAddRequest(write, r);
             }
         }
     }
@@ -729,13 +714,7 @@ public class BookieRequestProcessor implements RequestProcessor {
                         r.ledgerId, r.entryId, memoryLimitController.getReadBytesInProgress(),
                         memoryLimitController.getMaxReadBytesLimit());
             }
-            getRequestStats().getReadEntryRejectedCounter().inc();
-            read.sendResponse(
-                    BookieProtocol.ETOOMANYREQUESTS,
-                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                    requestStats.getReadRequestStats());
-            onReadRequestFinish();
-            read.recycle();
+            rejectReadRequest(read, r);
             return;
         }
 
@@ -759,15 +738,30 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to read entry at {}:{}. Too many pending requests", r.ledgerId,
                             r.entryId);
                 }
-                getRequestStats().getReadEntryRejectedCounter().inc();
-                read.sendResponse(
-                    BookieProtocol.ETOOMANYREQUESTS,
-                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                    requestStats.getReadRequestStats());
-                onReadRequestFinish();
-                read.recycle();
+                rejectReadRequest(read, r);
             }
         }
+    }
+
+    private void rejectAddRequest(WriteEntryProcessor write, BookieProtocol.ParsedAddRequest r) {
+        getRequestStats().getAddEntryRejectedCounter().inc();
+        write.sendWriteReqResponse(
+                BookieProtocol.ETOOMANYREQUESTS,
+                ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                requestStats.getAddRequestStats());
+        r.release();
+        r.recycle();
+        write.recycle();
+    }
+
+    private void rejectReadRequest(ReadEntryProcessor read, BookieProtocol.ReadRequest r) {
+        getRequestStats().getReadEntryRejectedCounter().inc();
+        read.sendResponse(
+                BookieProtocol.ETOOMANYREQUESTS,
+                ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                requestStats.getReadRequestStats());
+        onReadRequestFinish();
+        read.recycle();
     }
 
     public long getWaitTimeoutOnBackpressureMillis() {
