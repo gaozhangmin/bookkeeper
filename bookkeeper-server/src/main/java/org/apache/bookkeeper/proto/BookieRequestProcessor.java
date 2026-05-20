@@ -738,9 +738,9 @@ public class BookieRequestProcessor implements RequestProcessor {
                 }
                 getRequestStats().getReadEntryRejectedCounter().inc();
                 read.sendResponse(
-                        BookieProtocol.ETOOMANYREQUESTS,
-                        ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                        requestStats.getReadRequestStats());
+                    BookieProtocol.ETOOMANYREQUESTS,
+                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                    requestStats.getReadRequestStats());
                 onReadRequestFinish();
                 read.recycle();
             }
