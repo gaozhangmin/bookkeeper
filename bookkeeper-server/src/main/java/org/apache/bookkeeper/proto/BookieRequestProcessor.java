@@ -122,8 +122,8 @@ public class BookieRequestProcessor implements RequestProcessor {
     final Semaphore addsSemaphore;
     final Semaphore readsSemaphore;
 
-    /** Controls write and read memory back-pressure. */
-    final MemoryLimitController memoryLimitController;
+    /** Controls add memory back-pressure. */
+    final MemoryLimitController addsMemoryLimitController;
 
     final ChannelGroup allChannels;
 
@@ -211,7 +211,7 @@ public class BookieRequestProcessor implements RequestProcessor {
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
 
         long maxWriteBytes = serverCfg.getMaxWriteBytesInProgressLimit();
-        this.memoryLimitController = maxWriteBytes > 0
+        this.addsMemoryLimitController = maxWriteBytes > 0
                 ? new MemoryLimitController(maxWriteBytes, WRITE_BYTES_IN_PROGRESS, statsLogger)
                 : null;
     }
@@ -661,16 +661,16 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
-        if (memoryLimitController != null) {
+        if (addsMemoryLimitController != null) {
             final long entrySize = r.getData().readableBytes();
-            final boolean acquireSuccess = memoryLimitController.tryAcquireBytes(entrySize);
+            final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
             write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0);
             if (!acquireSuccess) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
                             + "inProgress={} bytes, limit={} bytes",
-                            r.ledgerId, r.entryId, memoryLimitController.getBytesInProgress(),
-                            memoryLimitController.getMaxBytesLimit());
+                            r.ledgerId, r.entryId, addsMemoryLimitController.getBytesInProgress(),
+                            addsMemoryLimitController.getMaxBytesLimit());
                 }
                 rejectAddRequest(write, r);
                 return;
