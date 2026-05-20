@@ -106,4 +106,11 @@ public class MemoryLimitController {
     public long getMaxBytesLimit() {
         return maxBytesLimit;
     }
+
+    /**
+     * Returns {@code true} if the current in-progress bytes have reached or exceeded the limit.
+     */
+    public boolean isOverLimit() {
+        return getBytesInProgress() >= getMaxBytesLimit();
+    }
 }
