@@ -25,6 +25,7 @@ import io.netty.buffer.Unpooled;
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.BookieException.OperationRejectedException;
 import org.apache.bookkeeper.client.api.WriteFlag;
@@ -42,7 +43,8 @@ import org.slf4j.LoggerFactory;
 class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     private static final Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
-    private long needReleaseBytes = 0;
+    /** Bytes to release back to the memory controller; atomically consumed to guarantee exactly-once release. */
+    private final AtomicLong needReleaseBytes = new AtomicLong(0);
 
     public WriteEntryProcessorV3(Request request, BookieRequestHandler requestHandler,
                                  BookieRequestProcessor requestProcessor) {
@@ -182,14 +184,15 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     @Override
     protected void sendResponse(StatusCode code, Object response, OpStatsLogger statsLogger) {
         super.sendResponse(code, response, statsLogger);
-        if (needReleaseBytes > 0 && requestProcessor.getAddsMemoryLimitController() != null) {
-            requestProcessor.getAddsMemoryLimitController().releaseBytes(needReleaseBytes);
+        long toRelease = needReleaseBytes.getAndSet(0);
+        if (toRelease > 0 && requestProcessor.getAddsMemoryLimitController() != null) {
+            requestProcessor.getAddsMemoryLimitController().releaseBytes(toRelease);
         }
         requestProcessor.onAddRequestFinish();
     }
 
-    public void setNeedReleaseBytes(long needReleaseBytes) {
-        this.needReleaseBytes = needReleaseBytes;
+    public void setNeedReleaseBytes(long bytes) {
+        this.needReleaseBytes.set(bytes);
     }
 
     /**

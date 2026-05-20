@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.util.Recycler;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.BookieException.OperationRejectedException;
 import org.apache.bookkeeper.net.BookieId;
@@ -40,13 +41,14 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     long startTimeNanos;
 
-    private long needReleaseBytes;
+    /** Bytes to release back to the memory controller; atomically consumed to guarantee exactly-once release. */
+    private final AtomicLong needReleaseBytes = new AtomicLong(0);
 
     @Override
     protected void reset() {
         super.reset();
         startTimeNanos = -1L;
-        needReleaseBytes = 0;
+        needReleaseBytes.set(0);
     }
 
     public static WriteEntryProcessor create(ParsedAddRequest request, BookieRequestHandler requestHandler,
@@ -61,7 +63,7 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
     protected void init(ParsedAddRequest request, BookieRequestHandler requestHandler,
                         BookieRequestProcessor requestProcessor) {
         super.init(request, requestHandler, requestProcessor);
-        needReleaseBytes = 0;
+        needReleaseBytes.set(0);
     }
 
     @Override
@@ -151,15 +153,16 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
 
     @VisibleForTesting
     void recycle() {
-        if (needReleaseBytes > 0 && requestProcessor.getAddsMemoryLimitController() != null) {
-            requestProcessor.getAddsMemoryLimitController().releaseBytes(needReleaseBytes);
+        long toRelease = needReleaseBytes.getAndSet(0);
+        if (toRelease > 0 && requestProcessor.getAddsMemoryLimitController() != null) {
+            requestProcessor.getAddsMemoryLimitController().releaseBytes(toRelease);
         }
         reset();
         recyclerHandle.recycle(this);
     }
 
-    public void setNeedReleaseBytes(long needReleaseBytes) {
-        this.needReleaseBytes = needReleaseBytes;
+    public void setNeedReleaseBytes(long bytes) {
+        this.needReleaseBytes.set(bytes);
     }
 
     private final Recycler.Handle<WriteEntryProcessor> recyclerHandle;
