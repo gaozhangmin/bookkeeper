@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
 import static org.apache.bookkeeper.proto.RequestUtils.hasFlag;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -209,9 +210,10 @@ public class BookieRequestProcessor implements RequestProcessor {
         int maxReads = serverCfg.getMaxReadsInProgressLimit();
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
 
-        this.memoryLimitController = new MemoryLimitController(
-                serverCfg.getMaxWriteBytesInProgressLimit(),
-                statsLogger);
+        long maxWriteBytes = serverCfg.getMaxWriteBytesInProgressLimit();
+        this.memoryLimitController = maxWriteBytes > 0
+                ? new MemoryLimitController(maxWriteBytes, WRITE_BYTES_IN_PROGRESS, statsLogger)
+                : null;
     }
 
     protected void onAddRequestStart(Channel channel) {
@@ -658,19 +660,21 @@ public class BookieRequestProcessor implements RequestProcessor {
     }
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
-        final long entrySize = r.getData().readableBytes();
-        final boolean acquireSuccess = memoryLimitController.tryAcquireWriteBytes(entrySize);
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
-        write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0);
-        if (!acquireSuccess) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
-                        + "inProgress={} bytes, limit={} bytes",
-                        r.ledgerId, r.entryId, memoryLimitController.getWriteBytesInProgress(),
-                        memoryLimitController.getMaxWriteBytesLimit());
+        if (memoryLimitController != null) {
+            final long entrySize = r.getData().readableBytes();
+            final boolean acquireSuccess = memoryLimitController.tryAcquireBytes(entrySize);
+            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0);
+            if (!acquireSuccess) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                            + "inProgress={} bytes, limit={} bytes",
+                            r.ledgerId, r.entryId, memoryLimitController.getBytesInProgress(),
+                            memoryLimitController.getMaxBytesLimit());
+                }
+                rejectAddRequest(write, r);
+                return;
             }
-            rejectAddRequest(write, r);
-            return;
         }
 
         // If it's a high priority add (usually as part of recovery process), we want to make sure it gets
@@ -726,7 +730,13 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to read entry at {}:{}. Too many pending requests", r.ledgerId,
                             r.entryId);
                 }
-                rejectReadRequest(read, r);
+                getRequestStats().getReadEntryRejectedCounter().inc();
+                read.sendResponse(
+                        BookieProtocol.ETOOMANYREQUESTS,
+                        ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                        requestStats.getReadRequestStats());
+                onReadRequestFinish();
+                read.recycle();
             }
         }
     }
@@ -740,16 +750,6 @@ public class BookieRequestProcessor implements RequestProcessor {
         r.release();
         r.recycle();
         write.recycle();
-    }
-
-    private void rejectReadRequest(ReadEntryProcessor read, BookieProtocol.ReadRequest r) {
-        getRequestStats().getReadEntryRejectedCounter().inc();
-        read.sendResponse(
-                BookieProtocol.ETOOMANYREQUESTS,
-                ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                requestStats.getReadRequestStats());
-        onReadRequestFinish();
-        read.recycle();
     }
 
     public long getWaitTimeoutOnBackpressureMillis() {

@@ -20,39 +20,32 @@
  */
 package org.apache.bookkeeper.proto;
 
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
-
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 /**
- * Controls memory back-pressure for in-flight write and read requests.
+ * Controls memory back-pressure for in-flight requests.
  *
- * <p>Tracks the total bytes currently occupied by:
- * <ul>
- *   <li>Write requests: from the moment an add-entry request is accepted until the bookie
- *       finishes writing and the {@link WriteEntryProcessor} is recycled.</li>
- * </ul>
- *
- * <p>When the tracked bytes exceed the configured limit, new requests are rejected
+ * <p>Tracks the total bytes currently occupied by in-flight requests (e.g. write or read).
+ * When the tracked bytes exceed the configured limit, new requests are rejected
  * immediately with {@code ETOOMANYREQUESTS}. A limit of {@code 0} disables the check.
  */
 public class MemoryLimitController {
 
-    /** Total bytes of add requests currently in-flight. */
-    private final AtomicLong writeBytesInProgress = new AtomicLong(0);
+    /** Total bytes of requests currently in-flight. */
+    private final AtomicLong bytesInProgress = new AtomicLong(0);
 
-    /** Maximum total bytes allowed for in-flight add requests. 0 means unlimited. */
-    private final long maxWriteBytesLimit;
+    /** Maximum total bytes allowed for in-flight requests. 0 means unlimited. */
+    private final long maxBytesLimit;
 
-    public MemoryLimitController(long maxWriteBytesLimit, StatsLogger statsLogger) {
-        this.maxWriteBytesLimit = maxWriteBytesLimit;
-        registerGauges(statsLogger);
+    public MemoryLimitController(long maxBytesLimit, String gaugeKey, StatsLogger statsLogger) {
+        this.maxBytesLimit = maxBytesLimit;
+        registerGauges(gaugeKey, statsLogger);
     }
 
-    private void registerGauges(StatsLogger statsLogger) {
-        statsLogger.registerGauge(WRITE_BYTES_IN_PROGRESS, new Gauge<Number>() {
+    private void registerGauges(String gaugeKey, StatsLogger statsLogger) {
+        statsLogger.registerGauge(gaugeKey, new Gauge<Number>() {
             @Override
             public Number getDefaultValue() {
                 return 0;
@@ -60,69 +53,57 @@ public class MemoryLimitController {
 
             @Override
             public Number getSample() {
-                return writeBytesInProgress.get();
+                return bytesInProgress.get();
             }
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Write memory
-    // -------------------------------------------------------------------------
-
     /**
-     * Attempts to account {@code bytes} for a new write request.
+     * Attempts to account {@code bytes} for a new request.
      *
-     * <p>The bytes are always added to {@link #writeBytesInProgress} (for monitoring).
+     * <p>The bytes are always added to {@link #bytesInProgress} (for monitoring).
      * If the limit is enabled ({@code > 0}) and the new total would exceed it,
-     * the bytes are subtracted back and {@code true} is returned (request should be rejected).
-     * Otherwise {@code false} is returned (request is accepted and bytes are accounted).
-     *
-     * <p>When the limit is disabled ({@code <= 0}), bytes are still tracked but the
-     * request is never rejected.
+     * the bytes are subtracted back and {@code false} is returned (request should be rejected).
+     * Otherwise {@code true} is returned (request is accepted and bytes are accounted).
      *
      * @param bytes the size of the new request
-     * @return {@code true} if the request should be rejected; {@code false} if accepted and accounted
+     * @return {@code true} if accepted and accounted; {@code false} if the request should be rejected
      */
-    public boolean tryAcquireWriteBytes(long bytes) {
-        if (maxWriteBytesLimit <= 0) {
-            // Limit disabled: still track bytes for monitoring, but never reject.
-            writeBytesInProgress.addAndGet(bytes);
-            return true;
-        }
+    public boolean tryAcquireBytes(long bytes) {
         while (true) {
-            long current = writeBytesInProgress.get();
+            long current = bytesInProgress.get();
             long newTotal = current + bytes;
-            if (newTotal > maxWriteBytesLimit) {
+            if (newTotal > maxBytesLimit) {
                 return false; // over limit → reject
             }
-            if (writeBytesInProgress.compareAndSet(current, newTotal)) {
+            if (bytesInProgress.compareAndSet(current, newTotal)) {
                 return true; // accepted and accounted
             }
         }
     }
 
     /**
-     * Accounts {@code bytes} for an accepted write request.
-     * Must be paired with a later call to {@link #releaseWriteBytes(long)}.
+     * Accounts {@code bytes} for an accepted request.
+     * Must be paired with a later call to {@link #releaseBytes(long)}.
      */
-    public void acquireWriteBytes(long bytes) {
-        writeBytesInProgress.addAndGet(bytes);
+    public void acquireBytes(long bytes) {
+        bytesInProgress.addAndGet(bytes);
     }
 
     /**
-     * Releases bytes previously accounted by {@link #acquireWriteBytes(long)}.
+     * Releases bytes previously accounted by {@link #acquireBytes(long)}.
      */
-    public void releaseWriteBytes(long bytes) {
-        writeBytesInProgress.addAndGet(-bytes);
+    public void releaseBytes(long bytes) {
+        bytesInProgress.addAndGet(-bytes);
     }
 
-    /** Returns the current total write bytes in progress (for monitoring). */
-    public long getWriteBytesInProgress() {
-        return writeBytesInProgress.get();
+    /** Returns the current total bytes in progress (for monitoring). */
+    public long getBytesInProgress() {
+        return bytesInProgress.get();
     }
 
-    /** Returns the configured write bytes limit (0 = unlimited). */
-    public long getMaxWriteBytesLimit() {
-        return maxWriteBytesLimit;
+    /** Returns the configured bytes limit (0 = unlimited). */
+    public long getMaxBytesLimit() {
+        return maxBytesLimit;
     }
 }
