@@ -43,8 +43,6 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
     protected ExecutorService fenceThreadPool;
     protected boolean throttleReadResponses;
 
-    protected long accountedReadBytes;
-
     public static ReadEntryProcessor create(ReadRequest request,
                                             BookieRequestHandler requestHandler,
                                             BookieRequestProcessor requestProcessor,
@@ -54,7 +52,6 @@ class ReadEntryProcessor extends PacketProcessorBase<ReadRequest> {
         rep.init(request, requestHandler, requestProcessor);
         rep.fenceThreadPool = fenceThreadPool;
         rep.throttleReadResponses = throttleReadResponses;
-        rep.accountedReadBytes = 0L;
         requestProcessor.onReadRequestStart(requestHandler.ctx().channel());
         return rep;
     }

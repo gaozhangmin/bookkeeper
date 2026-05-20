@@ -233,7 +233,10 @@ public class BookieRequestProcessor implements RequestProcessor {
         requestStats.trackAddRequest();
     }
 
-    protected void onAddRequestFinish() {
+    protected void onAddRequestFinish(long releaseAddBytes) {
+        if (releaseAddBytes > 0 && addsMemoryLimitController != null) {
+            addsMemoryLimitController.releaseBytes(releaseAddBytes);
+        }
         requestStats.untrackAddRequest();
         if (addsSemaphore != null) {
             addsSemaphore.release();
@@ -454,7 +457,7 @@ public class BookieRequestProcessor implements RequestProcessor {
         if (addsMemoryLimitController != null) {
             final long entrySize = r.getAddRequest().getBody().size();
             final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
-            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0L);
+            write.setNeedReleaseAddBytes(acquireSuccess ? entrySize : 0L);
             if (!acquireSuccess) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
@@ -670,7 +673,7 @@ public class BookieRequestProcessor implements RequestProcessor {
         if (addsMemoryLimitController != null) {
             final long entrySize = r.getData().readableBytes();
             final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
-            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0L);
+            write.setNeedReleaseAddBytes(acquireSuccess ? entrySize : 0L);
             if (!acquireSuccess) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "

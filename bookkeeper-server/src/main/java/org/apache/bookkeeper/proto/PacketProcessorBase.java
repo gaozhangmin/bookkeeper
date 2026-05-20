@@ -22,6 +22,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelPromise;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
@@ -39,6 +40,13 @@ abstract class PacketProcessorBase<T extends Request> implements Runnable {
     BookieRequestProcessor requestProcessor;
     long enqueueNanos;
 
+    /** Bytes to release back to the memory controller on request finish; atomically consumed for exactly-once release. */
+    final AtomicLong needReleaseAddBytes = new AtomicLong(0);
+
+    public void setNeedReleaseAddBytes(long bytes) {
+        this.needReleaseAddBytes.set(bytes);
+    }
+
     protected void init(T request, BookieRequestHandler requestHandler, BookieRequestProcessor requestProcessor) {
         this.request = request;
         this.requestHandler = requestHandler;
@@ -51,6 +59,7 @@ abstract class PacketProcessorBase<T extends Request> implements Runnable {
         requestHandler = null;
         requestProcessor = null;
         enqueueNanos = -1;
+        needReleaseAddBytes.set(0);
     }
 
     protected boolean isVersionCompatible() {
@@ -68,7 +77,7 @@ abstract class PacketProcessorBase<T extends Request> implements Runnable {
 
     protected void sendWriteReqResponse(int rc, Object response, OpStatsLogger statsLogger) {
         sendResponse(rc, response, statsLogger);
-        requestProcessor.onAddRequestFinish();
+        requestProcessor.onAddRequestFinish(needReleaseAddBytes.getAndSet(0));
     }
 
     protected void sendReadReqResponse(int rc, Object response, OpStatsLogger statsLogger, boolean throttle) {
@@ -195,7 +204,7 @@ abstract class PacketProcessorBase<T extends Request> implements Runnable {
             if (request instanceof BookieProtocol.ParsedAddRequest) {
                 ((BookieProtocol.ParsedAddRequest) request).release();
                 request.recycle();
-                requestProcessor.onAddRequestFinish();
+                requestProcessor.onAddRequestFinish(needReleaseAddBytes.getAndSet(0));
             }
             return;
         }
