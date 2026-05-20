@@ -451,6 +451,22 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequestV3(final BookkeeperProtocol.Request r, final BookieRequestHandler requestHandler) {
         WriteEntryProcessorV3 write = new WriteEntryProcessorV3(r, requestHandler, this);
+        if (addsMemoryLimitController != null) {
+            final long entrySize = r.getAddRequest().getBody().size();
+            final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
+            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0L);
+            if (!acquireSuccess) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                            + "inProgress={} bytes, limit={} bytes",
+                            r.getAddRequest().getLedgerId(), r.getAddRequest().getEntryId(),
+                            addsMemoryLimitController.getBytesInProgress(),
+                            addsMemoryLimitController.getMaxBytesLimit());
+                }
+                rejectAddRequestV3(write, r);
+                return;
+            }
+        }
 
         final OrderedExecutor threadPool;
         if (RequestUtils.isHighPriority(r)) {
@@ -469,17 +485,7 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to add entry at {}:{}. Too many pending requests",
                               r.getAddRequest().getLedgerId(), r.getAddRequest().getEntryId());
                 }
-                getRequestStats().getAddEntryRejectedCounter().inc();
-                BookkeeperProtocol.AddResponse.Builder addResponse = BookkeeperProtocol.AddResponse.newBuilder()
-                        .setLedgerId(r.getAddRequest().getLedgerId())
-                        .setEntryId(r.getAddRequest().getEntryId())
-                        .setStatus(BookkeeperProtocol.StatusCode.ETOOMANYREQUESTS);
-                BookkeeperProtocol.Response.Builder response = BookkeeperProtocol.Response.newBuilder()
-                        .setHeader(write.getHeader())
-                        .setStatus(addResponse.getStatus())
-                        .setAddResponse(addResponse);
-                BookkeeperProtocol.Response resp = response.build();
-                write.sendResponse(addResponse.getStatus(), resp, requestStats.getAddRequestStats());
+                rejectAddRequestV3(write, r);
             }
         }
     }
@@ -664,7 +670,7 @@ public class BookieRequestProcessor implements RequestProcessor {
         if (addsMemoryLimitController != null) {
             final long entrySize = r.getData().readableBytes();
             final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
-            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0);
+            write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0L);
             if (!acquireSuccess) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
@@ -750,6 +756,19 @@ public class BookieRequestProcessor implements RequestProcessor {
         r.release();
         r.recycle();
         write.recycle();
+    }
+
+    private void rejectAddRequestV3(WriteEntryProcessorV3 write, BookkeeperProtocol.Request r) {
+        getRequestStats().getAddEntryRejectedCounter().inc();
+        BookkeeperProtocol.AddResponse.Builder addResponse = BookkeeperProtocol.AddResponse.newBuilder()
+                .setLedgerId(r.getAddRequest().getLedgerId())
+                .setEntryId(r.getAddRequest().getEntryId())
+                .setStatus(BookkeeperProtocol.StatusCode.ETOOMANYREQUESTS);
+        BookkeeperProtocol.Response.Builder response = BookkeeperProtocol.Response.newBuilder()
+                .setHeader(write.getHeader())
+                .setStatus(addResponse.getStatus())
+                .setAddResponse(addResponse);
+        write.sendResponse(addResponse.getStatus(), response.build(), requestStats.getAddRequestStats());
     }
 
     public long getWaitTimeoutOnBackpressureMillis() {

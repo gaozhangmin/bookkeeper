@@ -42,6 +42,8 @@ import org.slf4j.LoggerFactory;
 class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     private static final Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
+    private long needReleaseBytes = 0;
+
     public WriteEntryProcessorV3(Request request, BookieRequestHandler requestHandler,
                                  BookieRequestProcessor requestProcessor) {
         super(request, requestHandler, requestProcessor);
@@ -180,7 +182,14 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     @Override
     protected void sendResponse(StatusCode code, Object response, OpStatsLogger statsLogger) {
         super.sendResponse(code, response, statsLogger);
+        if (needReleaseBytes > 0 && requestProcessor.getAddsMemoryLimitController() != null) {
+            requestProcessor.getAddsMemoryLimitController().releaseBytes(needReleaseBytes);
+        }
         requestProcessor.onAddRequestFinish();
+    }
+
+    public void setNeedReleaseBytes(long needReleaseBytes) {
+        this.needReleaseBytes = needReleaseBytes;
     }
 
     /**
