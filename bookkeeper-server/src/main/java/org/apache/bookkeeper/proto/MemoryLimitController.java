@@ -20,7 +20,6 @@
  */
 package org.apache.bookkeeper.proto;
 
-import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_BYTES_IN_PROGRESS;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
 
 import java.util.concurrent.atomic.AtomicLong;

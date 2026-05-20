@@ -102,7 +102,6 @@ public interface BookKeeperServerStats {
 
     // Bytes In Progress
     String WRITE_BYTES_IN_PROGRESS = "WRITE_BYTES_IN_PROGRESS";
-    String READ_BYTES_IN_PROGRESS = "READ_BYTES_IN_PROGRESS";
 
     //
     // Journal Stats (scoped under SERVER_SCOPE)
