@@ -211,7 +211,6 @@ public class BookieRequestProcessor implements RequestProcessor {
 
         this.memoryLimitController = new MemoryLimitController(
                 serverCfg.getMaxWriteBytesInProgressLimit(),
-                serverCfg.getMaxReadBytesInProgressLimit(),
                 statsLogger);
     }
 
@@ -660,10 +659,10 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
         final long entrySize = r.getData().readableBytes();
-        final boolean limitExceeded = memoryLimitController.tryAcquireWriteBytes(entrySize);
+        final boolean acquireSuccess = memoryLimitController.tryAcquireWriteBytes(entrySize);
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
-        write.setNeedReleaseBytes(limitExceeded ? 0 : entrySize);
-        if (limitExceeded) {
+        write.setNeedReleaseBytes(acquireSuccess ? entrySize : 0);
+        if (!acquireSuccess) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
                         + "inProgress={} bytes, limit={} bytes",
@@ -706,17 +705,6 @@ public class BookieRequestProcessor implements RequestProcessor {
                 this, fenceThreadPool, throttleReadResponses, serverCfg.getMaxBatchReadSize())
                 : ReadEntryProcessor.create(r, requestHandler,
                         this, fenceThreadPool, throttleReadResponses);
-
-        if (memoryLimitController.isReadMemoryLimitExceeded()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Rejecting read request for entry {}:{} due to read memory limit: "
-                        + "inProgress={} bytes, limit={} bytes",
-                        r.ledgerId, r.entryId, memoryLimitController.getReadBytesInProgress(),
-                        memoryLimitController.getMaxReadBytesLimit());
-            }
-            rejectReadRequest(read, r);
-            return;
-        }
 
         // If it's a high priority read (fencing or as part of recovery process), we want to make sure it
         // gets executed as fast as possible, so bypass the normal readThreadPool

@@ -34,8 +34,6 @@ import org.apache.bookkeeper.stats.StatsLogger;
  * <ul>
  *   <li>Write requests: from the moment an add-entry request is accepted until the bookie
  *       finishes writing and the {@link WriteEntryProcessor} is recycled.</li>
- *   <li>Read requests: from the moment storage returns data until the
- *       {@link ReadEntryProcessor} is recycled (i.e., the response has been sent).</li>
  * </ul>
  *
  * <p>When the tracked bytes exceed the configured limit, new requests are rejected
@@ -49,15 +47,8 @@ public class MemoryLimitController {
     /** Maximum total bytes allowed for in-flight add requests. 0 means unlimited. */
     private final long maxWriteBytesLimit;
 
-    /** Total bytes of read responses currently in-flight. */
-    private final AtomicLong readBytesInProgress = new AtomicLong(0);
-
-    /** Maximum total bytes allowed for in-flight read responses. 0 means unlimited. */
-    private final long maxReadBytesLimit;
-
-    public MemoryLimitController(long maxWriteBytesLimit, long maxReadBytesLimit, StatsLogger statsLogger) {
+    public MemoryLimitController(long maxWriteBytesLimit, StatsLogger statsLogger) {
         this.maxWriteBytesLimit = maxWriteBytesLimit;
-        this.maxReadBytesLimit = maxReadBytesLimit;
         registerGauges(statsLogger);
     }
 
@@ -71,18 +62,6 @@ public class MemoryLimitController {
             @Override
             public Number getSample() {
                 return writeBytesInProgress.get();
-            }
-        });
-
-        statsLogger.registerGauge(READ_BYTES_IN_PROGRESS, new Gauge<Number>() {
-            @Override
-            public Number getDefaultValue() {
-                return 0;
-            }
-
-            @Override
-            public Number getSample() {
-                return readBytesInProgress.get();
             }
         });
     }
@@ -109,16 +88,16 @@ public class MemoryLimitController {
         if (maxWriteBytesLimit <= 0) {
             // Limit disabled: still track bytes for monitoring, but never reject.
             writeBytesInProgress.addAndGet(bytes);
-            return false;
+            return true;
         }
         while (true) {
             long current = writeBytesInProgress.get();
             long newTotal = current + bytes;
             if (newTotal > maxWriteBytesLimit) {
-                return true; // over limit → reject
+                return false; // over limit → reject
             }
             if (writeBytesInProgress.compareAndSet(current, newTotal)) {
-                return false; // accepted and accounted
+                return true; // accepted and accounted
             }
         }
     }
@@ -146,48 +125,5 @@ public class MemoryLimitController {
     /** Returns the configured write bytes limit (0 = unlimited). */
     public long getMaxWriteBytesLimit() {
         return maxWriteBytesLimit;
-    }
-
-    // -------------------------------------------------------------------------
-    // Read memory
-    // -------------------------------------------------------------------------
-
-    /**
-     * Returns {@code true} if the read memory limit is enabled and the current
-     * in-progress bytes already meet or exceed the limit.
-     *
-     * <p>Unlike write bytes, the actual size of a read response is not known at request
-     * arrival time, so we only guard against accepting new requests when the current total
-     * is already at the limit.
-     *
-     * @return {@code true} if the request should be rejected
-     */
-    public boolean isReadMemoryLimitExceeded() {
-        return maxReadBytesLimit > 0 && readBytesInProgress.get() >= maxReadBytesLimit;
-    }
-
-    /**
-     * Accounts {@code bytes} for a read response that has been loaded into memory.
-     * Must be paired with a later call to {@link #releaseReadBytes(long)}.
-     */
-    public void acquireReadBytes(long bytes) {
-        readBytesInProgress.addAndGet(bytes);
-    }
-
-    /**
-     * Releases bytes previously accounted by {@link #acquireReadBytes(long)}.
-     */
-    public void releaseReadBytes(long bytes) {
-        readBytesInProgress.addAndGet(-bytes);
-    }
-
-    /** Returns the current total read bytes in progress (for monitoring). */
-    public long getReadBytesInProgress() {
-        return readBytesInProgress.get();
-    }
-
-    /** Returns the configured read bytes limit (0 = unlimited). */
-    public long getMaxReadBytesLimit() {
-        return maxReadBytesLimit;
     }
 }

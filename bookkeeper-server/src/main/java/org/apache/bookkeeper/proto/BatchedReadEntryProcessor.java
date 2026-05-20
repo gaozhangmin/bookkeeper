@@ -98,9 +98,6 @@ public class BatchedReadEntryProcessor extends ReadEntryProcessor {
     }
 
     protected void recycle() {
-        if (accountedReadBytes > 0L) {
-            requestProcessor.getMemoryLimitController().releaseReadBytes(accountedReadBytes);
-        }
         request.recycle();
         super.reset();
         if (this.recyclerHandle != null) {
