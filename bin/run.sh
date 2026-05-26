@@ -62,6 +62,13 @@ if [[ $KWS_SERVICE_NAME == *kop* ]]; then
   python3 /home/web_server/bookkeeper/apps/bin/init_cluster_config.py
   # generate rocksdb config
   python3 /home/web_server/bookkeeper/apps/bin/init_rocksdb_config.py
+elif [[ $KWS_SERVICE_NAME == *bop* ]]; then
+  # install python kconf
+  pip3 install infra-kconf
+  # generate cluster config
+  python3 /home/web_server/bookkeeper/apps/bin/init_cluster_config.py
+  # generate rocksdb config
+  python3 /home/web_server/bookkeeper/apps/bin/init_rocksdb_config.py
 fi
 
 export BOOKIE_MEM_OPTS="-Xms${heapSize} -Xmx${heapSize} -XX:MaxDirectMemorySize=${directMem} -XX:-UseNUMA"

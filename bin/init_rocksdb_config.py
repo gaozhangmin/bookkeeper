@@ -47,6 +47,10 @@ def get_cluster_name():
         sys.exit(1)
     return ksn.replace("infra-", "").replace('-', '_')
 
+cluster_name = get_cluster_name()
+if cluster_name.startswith('bop'):
+    default_kconf_prefix = 'infra.BopBookkeeperRocksdb.'
+print(f'cluster name:{cluster_name} default_kconf_prefix:{default_kconf_prefix}')
 
 default_config = read_kconf(default_kconf_prefix + default_kconf_cluster)
 if None is default_config or not default_config:
@@ -55,7 +59,6 @@ if None is default_config or not default_config:
 
 
 real_cluster_config = default_config
-cluster_name = get_cluster_name()
 cluster_config = read_kconf(default_kconf_prefix + cluster_name)
 if None is cluster_config or not cluster_config:
     print(f'not get cluster {cluster_name} config, use default config')

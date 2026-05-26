@@ -27,6 +27,15 @@ source ${BK_HOME}/bin/common.sh
 
 # default variables
 DEFAULT_CONF=${BK_HOME}/conf/$KWS_SERVICE_NAME/bk_server.conf
+
+# generated conf
+GENERATED_CONF=${BK_HOME}/conf/generated_bk_server.conf
+
+# bop-bk uses generated conf
+if [[ $KWS_SERVICE_NAME == *bop* ]] && [ -f "$GENERATED_CONF" ]; then
+    DEFAULT_CONF=$GENERATED_CONF
+fi
+
 # kop-bk uses generated bk_server.conf
 if [[ $KWS_SERVICE_NAME == *kop* ]]; then
   DEFAULT_CONF=${BK_HOME}/conf/generated_bk_server.conf

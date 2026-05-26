@@ -36,13 +36,18 @@ if not ksn:
     sys.exit(1)
 cluster_name = ksn.replace("infra-", "").replace('-', '_')
 
-default_cluster_config = read_config('infra.bookkeeper.default_cluster_config')
+kconf_path = 'infra.bookkeeper'
+if cluster_name.startswith('bop'):
+    kconf_path = 'infra.BopBookkeeper'
+print(f'cluster_name: {cluster_name} kconf_path: {kconf_path}')
+
+default_cluster_config = read_config(f'{kconf_path}.default_cluster_config')
 if None is default_cluster_config or not default_cluster_config:
     print('error, default cluster config is empty')
     sys.exit(1)
 print(f'default config: {default_cluster_config}')
 
-cluster_config = read_config(f'infra.bookkeeper.{cluster_name}')
+cluster_config = read_config(f'{kconf_path}.{cluster_name}')
 if None is cluster_config or not cluster_config:
     print('error, current cluster config is empty')
     sys.exit(1)
