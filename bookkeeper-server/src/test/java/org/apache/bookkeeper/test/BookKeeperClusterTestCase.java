@@ -915,6 +915,9 @@ public abstract class BookKeeperClusterTestCase {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Starting Auditor Recovery for the bookie: {}", address);
             }
+            if (autoRecovery != null && autoRecovery.isAutoRecoveryRunning()) {
+                return;
+            }
             autoRecovery = new AutoRecoveryMain(conf);
             autoRecovery.start();
         }
@@ -925,6 +928,7 @@ public abstract class BookKeeperClusterTestCase {
                     LOG.debug("Shutdown Auditor Recovery for the bookie: {}", address);
                 }
                 autoRecovery.shutdown();
+                autoRecovery = null;
             }
         }
 
