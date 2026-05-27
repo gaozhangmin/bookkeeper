@@ -23,14 +23,17 @@ package org.apache.bookkeeper.replication;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.BookieImpl;
+import org.apache.bookkeeper.meta.zk.ZKMetadataDriverBase;
 import org.apache.bookkeeper.meta.zk.ZKMetadataClientDriver;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.TestUtils;
 import org.apache.zookeeper.ZooKeeper;
 import org.awaitility.Awaitility;
@@ -81,6 +84,33 @@ public class AutoRecoveryMainTest extends BookKeeperClusterTestCase {
                 main.auditorElector.isRunning());
         assertFalse("Replication worker should not be running",
                 main.replicationWorker.isRunning());
+    }
+
+    @Test
+    public void testAutoRecoveryRegistersUnderWorkerPath() throws Exception {
+        AutoRecoveryMain auditorMain = new AutoRecoveryMain(confByIndex(0));
+        AutoRecoveryMain workerMain = new AutoRecoveryMain(confByIndex(1));
+        try {
+            startAutoRecoveryMain(auditorMain);
+            Awaitility.await().untilAsserted(() -> {
+                assertNotNull(auditorMain.auditorElector.getAuditor());
+                assertTrue(auditorMain.auditorElector.getAuditor().isRunning());
+            });
+
+            startAutoRecoveryMain(workerMain);
+            BookieId auditorBookieId = BookieImpl.getBookieId(confByIndex(0));
+            BookieId workerBookieId = BookieImpl.getBookieId(confByIndex(1));
+
+            Awaitility.await().untilAsserted(() -> {
+                assertNotNull("Auditor should be registered under worker path",
+                        zkc.exists(autoRecoveryWorkerPath(auditorBookieId), false));
+                assertNotNull("Worker should be registered under worker path",
+                        zkc.exists(autoRecoveryWorkerPath(workerBookieId), false));
+            });
+        } finally {
+            workerMain.shutdown();
+            auditorMain.shutdown();
+        }
     }
 
     /**
@@ -208,5 +238,15 @@ public class AutoRecoveryMainTest extends BookKeeperClusterTestCase {
                 () -> autoRecoveryMain.auditorElector.isRunning()
                         && autoRecoveryMain.replicationWorker.isRunning() && autoRecoveryMain.isAutoRecoveryRunning());
         return metadataClientDriver;
+    }
+
+    private String autoRecoveryWorkerPath(BookieId bookieId) {
+        return autoRecoveryRolePath("worker", bookieId);
+    }
+
+    private String autoRecoveryRolePath(String role, BookieId bookieId) {
+        return ZKMetadataDriverBase.resolveZkLedgersRootPath(baseConf)
+                + "/" + BookKeeperConstants.UNDER_REPLICATION_NODE
+                + "/" + role + "/" + bookieId;
     }
 }

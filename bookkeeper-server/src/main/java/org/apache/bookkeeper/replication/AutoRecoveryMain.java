@@ -20,6 +20,7 @@
  */
 package org.apache.bookkeeper.replication;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
 import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_WORKER_SCOPE;
 
@@ -28,6 +29,9 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.net.MalformedURLException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.apache.bookkeeper.bookie.BookieCriticalThread;
@@ -40,7 +44,11 @@ import org.apache.bookkeeper.common.component.ComponentStarter;
 import org.apache.bookkeeper.common.component.LifecycleComponent;
 import org.apache.bookkeeper.common.component.LifecycleComponentStack;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.discover.BookieServiceInfo;
+import org.apache.bookkeeper.discover.BookieServiceInfoUtils;
 import org.apache.bookkeeper.meta.MetadataClientDriver;
+import org.apache.bookkeeper.meta.ZkLayoutManager;
+import org.apache.bookkeeper.meta.zk.ZKMetadataDriverBase;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.bookkeeper.server.conf.BookieConfiguration;
@@ -50,13 +58,20 @@ import org.apache.bookkeeper.server.service.HttpService;
 import org.apache.bookkeeper.server.service.StatsProviderService;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.BookKeeperConstants;
+import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.KeeperException.NoNodeException;
+import org.apache.zookeeper.KeeperException.NodeExistsException;
+import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.ACL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +89,7 @@ public class AutoRecoveryMain {
     final AuditorElector auditorElector;
     final ReplicationWorker replicationWorker;
     final AutoRecoveryDeathWatcher deathWatcher;
+    final AutoRecoveryRegistration autoRecoveryRegistration;
     int exitCode;
     private volatile boolean shuttingDown = false;
     private volatile boolean running = false;
@@ -102,6 +118,7 @@ public class AutoRecoveryMain {
             });
         });
 
+        autoRecoveryRegistration = new AutoRecoveryRegistration(conf, bkc);
         auditorElector = new AuditorElector(
             BookieImpl.getBookieId(conf).toString(),
             conf,
@@ -120,6 +137,13 @@ public class AutoRecoveryMain {
      * Start daemons
      */
     public void start() {
+        try {
+            autoRecoveryRegistration.registerWorker();
+        } catch (IOException e) {
+            LOG.error("Couldn't register auto recovery roles under underreplication path, shutting down", e);
+            shutdown(ExitCode.ZK_REG_FAIL);
+            throw new IllegalStateException("Failed to register auto recovery roles in zookeeper", e);
+        }
         auditorElector.start();
         replicationWorker.start();
         if (null != uncaughtExceptionHandler) {
@@ -160,6 +184,7 @@ public class AutoRecoveryMain {
             LOG.warn("Interrupted shutting down auditor elector", e);
         }
         replicationWorker.shutdown();
+        autoRecoveryRegistration.unregister();
         try {
             bkc.close();
         } catch (BKException e) {
@@ -172,6 +197,95 @@ public class AutoRecoveryMain {
 
     private int getExitCode() {
         return exitCode;
+    }
+
+    static class AutoRecoveryRegistration {
+        private static final String WORKER_NODE = "worker";
+
+        private final ServerConfiguration conf;
+        private final String bookieId;
+        private final ZooKeeper zk;
+        private final List<ACL> zkAcls;
+        private final String workerNodePath;
+        private final byte[] registrationData;
+
+        AutoRecoveryRegistration(ServerConfiguration conf, BookKeeper bkc) throws IOException {
+            this.conf = conf;
+            this.bookieId = BookieImpl.getBookieId(conf).toString();
+            this.zk = resolveZooKeeper(bkc);
+            this.zkAcls = ZkUtils.getACLs(conf);
+            String basePath = ZKMetadataDriverBase.resolveZkLedgersRootPath(conf)
+                    + "/" + BookKeeperConstants.UNDER_REPLICATION_NODE;
+            this.workerNodePath = basePath + "/" + WORKER_NODE + "/" + bookieId;
+            this.registrationData = BookieServiceInfoUtils.serializeBookieServiceInfo(buildBookieServiceInfo());
+        }
+
+        synchronized void registerWorker() throws IOException {
+            if (zk == null) {
+                LOG.info("Skip auto recovery role registration because metadata driver is not backed by ZooKeeper");
+                return;
+            }
+            createRoleNode(workerNodePath, WORKER_NODE);
+        }
+
+        synchronized void unregister() {
+            if (zk == null) {
+                return;
+            }
+            deleteRoleNode(workerNodePath);
+        }
+
+        private void createRoleNode(String roleNodePath, String role) throws IOException {
+            try {
+                ZkUtils.createFullPathOptimistic(zk, roleNodePath, registrationData, zkAcls,
+                        CreateMode.EPHEMERAL);
+                LOG.info("Registered auto recovery {} role at {}", role, roleNodePath);
+            } catch (NodeExistsException e) {
+                throw new IOException("Auto recovery " + role + " role already registered at " + roleNodePath, e);
+            } catch (KeeperException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                throw new IOException("Failed to register auto recovery " + role + " role at " + roleNodePath, e);
+            }
+        }
+
+        private void deleteRoleNode(String roleNodePath) {
+            try {
+                zk.delete(roleNodePath, -1);
+            } catch (NoNodeException e) {
+                // no-op
+            } catch (KeeperException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                LOG.warn("Failed to unregister auto recovery role node {}", roleNodePath, e);
+            }
+        }
+
+        private ZooKeeper resolveZooKeeper(BookKeeper bkc) {
+            MetadataClientDriver metadataClientDriver = bkc.getMetadataClientDriver();
+            if (!(metadataClientDriver.getLayoutManager() instanceof ZkLayoutManager)) {
+                return null;
+            }
+            return ((ZkLayoutManager) metadataClientDriver.getLayoutManager()).getZk();
+        }
+
+        private BookieServiceInfo buildBookieServiceInfo() throws IOException {
+            try {
+                BookieServiceInfo bookieServiceInfo = BookieServiceInfoUtils.buildLegacyBookieServiceInfo(bookieId);
+                Map<String, String> properties = new HashMap<>(bookieServiceInfo.getProperties());
+                if (conf.publishKwsInfo()) {
+                    properties.put("KWS_SERVICE_REGION",
+                            checkNotNull(System.getenv("KWS_SERVICE_REGION"), "KWS_SERVICE_REGION is null"));
+                    properties.put("KWS_SERVICE_PAZ",
+                            checkNotNull(System.getenv("KWS_SERVICE_PAZ"), "KWS_SERVICE_PAZ is null"));
+                }
+                return new BookieServiceInfo(properties, bookieServiceInfo.getEndpoints());
+            } catch (Exception e) {
+                throw new IOException("Failed to build bookie service info for auto recovery registration", e);
+            }
+        }
     }
 
     /**

@@ -188,7 +188,6 @@ public class AuditorElector {
                     }
                     try {
                         ledgerAuditorManager.tryToBecomeAuditor(bookieId, e -> handleAuditorEvent(e));
-
                         auditor = new Auditor(bookieId, conf, bkc, false, statsLogger);
                         auditor.start();
                     } catch (InterruptedException e) {

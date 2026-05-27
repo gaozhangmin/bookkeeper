@@ -17,15 +17,23 @@
  */
 package org.apache.bookkeeper.discover;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.proto.DataFormats.BookieServiceInfoFormat;
 
 /**
  * Utility class for {@link BookieServiceInfo}.
  */
 public final class BookieServiceInfoUtils {
+
+    private BookieServiceInfoUtils() {
+    }
 
     /**
      * Creates a default legacy bookie info implementation.
@@ -46,6 +54,28 @@ public final class BookieServiceInfoUtils {
         endpoint.setAuth(Collections.emptyList());
         endpoint.setExtensions(Collections.emptyList());
         return new BookieServiceInfo(Collections.emptyMap(), Arrays.asList(endpoint));
+    }
+
+    public static byte[] serializeBookieServiceInfo(BookieServiceInfo bookieServiceInfo) {
+        try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+            BookieServiceInfoFormat.Builder builder = BookieServiceInfoFormat.newBuilder();
+            List<BookieServiceInfoFormat.Endpoint> endpoints = bookieServiceInfo.getEndpoints().stream()
+                    .map(e -> BookieServiceInfoFormat.Endpoint.newBuilder()
+                            .setId(e.getId())
+                            .setPort(e.getPort())
+                            .setHost(e.getHost())
+                            .setProtocol(e.getProtocol())
+                            .addAllAuth(e.getAuth())
+                            .addAllExtensions(e.getExtensions())
+                            .build())
+                    .collect(Collectors.toList());
+            builder.addAllEndpoints(endpoints);
+            builder.putAllProperties(bookieServiceInfo.getProperties());
+            builder.build().writeTo(os);
+            return os.toByteArray();
+        } catch (IOException err) {
+            throw new RuntimeException("Cannot serialize bookieServiceInfo " + bookieServiceInfo, err);
+        }
     }
 
 }
