@@ -24,6 +24,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
@@ -43,6 +44,15 @@ public abstract class PacketProcessorBaseV3 implements Runnable {
     final BookieRequestHandler requestHandler;
     final BookieRequestProcessor requestProcessor;
     final long enqueueNanos;
+
+    /** Bytes to release back to the memory controller on request finish;
+     * atomically consumed for exactly-once release.
+     */
+    final AtomicLong needReleaseAddBytes = new AtomicLong(0);
+
+    public void setNeedReleaseAddBytes(long bytes) {
+        this.needReleaseAddBytes.set(bytes);
+    }
 
     public PacketProcessorBaseV3(Request request, BookieRequestHandler requestHandler,
                                  BookieRequestProcessor requestProcessor) {

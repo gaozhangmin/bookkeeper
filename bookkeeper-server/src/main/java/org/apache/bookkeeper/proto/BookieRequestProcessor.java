@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_BYTES_IN_PROGRESS;
 import static org.apache.bookkeeper.proto.RequestUtils.hasFlag;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -121,6 +122,9 @@ public class BookieRequestProcessor implements RequestProcessor {
     final Semaphore addsSemaphore;
     final Semaphore readsSemaphore;
 
+    /** Controls add memory back-pressure. */
+    final MemoryLimitController addsMemoryLimitController;
+
     final ChannelGroup allChannels;
 
     // to temporary blacklist channels
@@ -205,6 +209,11 @@ public class BookieRequestProcessor implements RequestProcessor {
 
         int maxReads = serverCfg.getMaxReadsInProgressLimit();
         readsSemaphore = maxReads > 0 ? new Semaphore(maxReads, true) : null;
+
+        long maxWriteBytes = serverCfg.getMaxWriteBytesInProgressLimit();
+        this.addsMemoryLimitController = maxWriteBytes > 0
+                ? new MemoryLimitController(maxWriteBytes, WRITE_BYTES_IN_PROGRESS, statsLogger)
+                : null;
     }
 
     protected void onAddRequestStart(Channel channel) {
@@ -224,7 +233,10 @@ public class BookieRequestProcessor implements RequestProcessor {
         requestStats.trackAddRequest();
     }
 
-    protected void onAddRequestFinish() {
+    protected void onAddRequestFinish(long releaseAddBytes) {
+        if (releaseAddBytes > 0 && addsMemoryLimitController != null) {
+            addsMemoryLimitController.releaseBytes(releaseAddBytes);
+        }
         requestStats.untrackAddRequest();
         if (addsSemaphore != null) {
             addsSemaphore.release();
@@ -442,6 +454,23 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequestV3(final BookkeeperProtocol.Request r, final BookieRequestHandler requestHandler) {
         WriteEntryProcessorV3 write = new WriteEntryProcessorV3(r, requestHandler, this);
+        if (addsMemoryLimitController != null) {
+            final long entrySize = r.getAddRequest().getBody().size();
+            final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
+            write.setNeedReleaseAddBytes(acquireSuccess ? entrySize : 0L);
+            if (!acquireSuccess) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                                    + "inProgress={} bytes, limit={} bytes",
+                            r.getAddRequest().getLedgerId(), r.getAddRequest().getEntryId(),
+                            addsMemoryLimitController.getBytesInProgress(),
+                            addsMemoryLimitController.getMaxBytesLimit());
+                }
+                getRequestStats().getAddEntryRejectedMemoryFullCounter().inc();
+                rejectAddRequestV3(write, r);
+                return;
+            }
+        }
 
         final OrderedExecutor threadPool;
         if (RequestUtils.isHighPriority(r)) {
@@ -460,17 +489,8 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to add entry at {}:{}. Too many pending requests",
                               r.getAddRequest().getLedgerId(), r.getAddRequest().getEntryId());
                 }
-                getRequestStats().getAddEntryRejectedCounter().inc();
-                BookkeeperProtocol.AddResponse.Builder addResponse = BookkeeperProtocol.AddResponse.newBuilder()
-                        .setLedgerId(r.getAddRequest().getLedgerId())
-                        .setEntryId(r.getAddRequest().getEntryId())
-                        .setStatus(BookkeeperProtocol.StatusCode.ETOOMANYREQUESTS);
-                BookkeeperProtocol.Response.Builder response = BookkeeperProtocol.Response.newBuilder()
-                        .setHeader(write.getHeader())
-                        .setStatus(addResponse.getStatus())
-                        .setAddResponse(addResponse);
-                BookkeeperProtocol.Response resp = response.build();
-                write.sendResponse(addResponse.getStatus(), resp, requestStats.getAddRequestStats());
+                getRequestStats().getAddEntryRejectedQueueFullCounter().inc();
+                rejectAddRequestV3(write, r);
             }
         }
     }
@@ -652,6 +672,22 @@ public class BookieRequestProcessor implements RequestProcessor {
 
     private void processAddRequest(final BookieProtocol.ParsedAddRequest r, final BookieRequestHandler requestHandler) {
         WriteEntryProcessor write = WriteEntryProcessor.create(r, requestHandler, this);
+        if (addsMemoryLimitController != null) {
+            final long entrySize = r.getData().readableBytes();
+            final boolean acquireSuccess = addsMemoryLimitController.tryAcquireBytes(entrySize);
+            write.setNeedReleaseAddBytes(acquireSuccess ? entrySize : 0L);
+            if (!acquireSuccess) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Rejecting add request for entry {}:{} due to write memory limit: "
+                                    + "inProgress={} bytes, limit={} bytes",
+                            r.ledgerId, r.entryId, addsMemoryLimitController.getBytesInProgress(),
+                            addsMemoryLimitController.getMaxBytesLimit());
+                }
+                getRequestStats().getAddEntryRejectedMemoryFullCounter().inc();
+                rejectAddRequest(write, r);
+                return;
+            }
+        }
 
         // If it's a high priority add (usually as part of recovery process), we want to make sure it gets
         // executed as fast as possible, so bypass the normal writeThreadPool and execute in highPriorityThreadPool
@@ -672,15 +708,8 @@ public class BookieRequestProcessor implements RequestProcessor {
                     LOG.debug("Failed to process request to add entry at {}:{}. Too many pending requests", r.ledgerId,
                             r.entryId);
                 }
-                getRequestStats().getAddEntryRejectedCounter().inc();
-
-                write.sendWriteReqResponse(
-                    BookieProtocol.ETOOMANYREQUESTS,
-                    ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
-                    requestStats.getAddRequestStats());
-                r.release();
-                r.recycle();
-                write.recycle();
+                getRequestStats().getAddEntryRejectedQueueFullCounter().inc();
+                rejectAddRequest(write, r);
             }
         }
     }
@@ -723,6 +752,28 @@ public class BookieRequestProcessor implements RequestProcessor {
                 read.recycle();
             }
         }
+    }
+
+    private void rejectAddRequest(WriteEntryProcessor write, BookieProtocol.ParsedAddRequest r) {
+        write.sendWriteReqResponse(
+                BookieProtocol.ETOOMANYREQUESTS,
+                ResponseBuilder.buildErrorResponse(BookieProtocol.ETOOMANYREQUESTS, r),
+                requestStats.getAddRequestStats());
+        r.release();
+        r.recycle();
+        write.recycle();
+    }
+
+    private void rejectAddRequestV3(WriteEntryProcessorV3 write, BookkeeperProtocol.Request r) {
+        BookkeeperProtocol.AddResponse.Builder addResponse = BookkeeperProtocol.AddResponse.newBuilder()
+                .setLedgerId(r.getAddRequest().getLedgerId())
+                .setEntryId(r.getAddRequest().getEntryId())
+                .setStatus(BookkeeperProtocol.StatusCode.ETOOMANYREQUESTS);
+        BookkeeperProtocol.Response.Builder response = BookkeeperProtocol.Response.newBuilder()
+                .setHeader(write.getHeader())
+                .setStatus(addResponse.getStatus())
+                .setAddResponse(addResponse);
+        write.sendResponse(addResponse.getStatus(), response.build(), requestStats.getAddRequestStats());
     }
 
     public long getWaitTimeoutOnBackpressureMillis() {

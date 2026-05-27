@@ -160,6 +160,7 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
     // backpressure control
     protected static final String MAX_ADDS_IN_PROGRESS_LIMIT = "maxAddsInProgressLimit";
     protected static final String MAX_READS_IN_PROGRESS_LIMIT = "maxReadsInProgressLimit";
+    protected static final String MAX_WRITE_BYTES_IN_PROGRESS_LIMIT = "maxWriteBytesInProgressLimit";
     protected static final String CLOSE_CHANNEL_ON_RESPONSE_TIMEOUT = "closeChannelOnResponseTimeout";
     protected static final String WAIT_TIMEOUT_ON_RESPONSE_BACKPRESSURE = "waitTimeoutOnResponseBackpressureMs";
 
@@ -1054,6 +1055,28 @@ public class ServerConfiguration extends AbstractConfiguration<ServerConfigurati
      */
     public ServerConfiguration setMaxAddsInProgressLimit(int value) {
         this.setProperty(MAX_ADDS_IN_PROGRESS_LIMIT, value);
+        return this;
+    }
+
+    /**
+     * Get max total bytes of add requests in progress. 0 == unlimited.
+     * When the total data bytes of in-flight add requests exceeds this limit,
+     * new add requests will be immediately rejected with ETOOMANYREQUESTS.
+     *
+     * @return Max bytes of add requests in progress. 0 means unlimited.
+     */
+    public long getMaxWriteBytesInProgressLimit() {
+        return this.getLong(MAX_WRITE_BYTES_IN_PROGRESS_LIMIT, 0L);
+    }
+
+    /**
+     * Set max total bytes of add requests in progress. 0 == unlimited.
+     *
+     * @param value max bytes of add requests in progress.
+     * @return server configuration.
+     */
+    public ServerConfiguration setMaxWriteBytesInProgressLimit(long value) {
+        this.setProperty(MAX_WRITE_BYTES_IN_PROGRESS_LIMIT, value);
         return this;
     }
 

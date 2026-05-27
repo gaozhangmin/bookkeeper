@@ -80,7 +80,7 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
                         requestHandler, request.getMasterKey());
             }
         } catch (OperationRejectedException e) {
-            requestProcessor.getRequestStats().getAddEntryRejectedCounter().inc();
+            requestProcessor.getRequestStats().getAddEntryRejectedOperationRejectedCounter().inc();
             // Avoid to log each occurrence of this exception as this can happen when the ledger storage is
             // unable to keep up with the write rate.
             if (LOG.isDebugEnabled()) {
@@ -127,7 +127,7 @@ class WriteEntryProcessor extends PacketProcessorBase<ParsedAddRequest> implemen
         }
 
         requestHandler.prepareSendResponseV2(rc, request);
-        requestProcessor.onAddRequestFinish();
+        requestProcessor.onAddRequestFinish(needReleaseAddBytes.getAndSet(0));
 
         request.recycle();
         recycle();

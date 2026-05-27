@@ -33,6 +33,7 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.GET_BOOKIE_INFO
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.GET_BOOKIE_INFO_REQUEST;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.GET_LIST_OF_ENTRIES_OF_LEDGER;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.GET_LIST_OF_ENTRIES_OF_LEDGER_REQUEST;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LABEL_REJECT_REASON;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_ENTRY;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_ENTRY_BLOCKED;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_ENTRY_BLOCKED_WAIT;
@@ -50,6 +51,9 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_ENTRY_SCHE
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_LAC;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_LAC_REQUEST;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.READ_LAST_ENTRY_NOENTRY_ERROR;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.REJECT_REASON_MEMORY_FULL;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.REJECT_REASON_OPERATION_REJECTED;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.REJECT_REASON_QUEUE_FULL;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.SERVER_SCOPE;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_LAC;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.WRITE_LAC_REQUEST;
@@ -103,10 +107,22 @@ public class RequestStats {
 
     @StatsDoc(
             name = ADD_ENTRY_REJECTED,
-            help = "Counter for rejected adds on a bookie",
+            help = "Counter for rejected adds due to queue full on a bookie",
             parent = ADD_ENTRY_REQUEST
     )
-    private final Counter addEntryRejectedCounter;
+    private final Counter addEntryRejectedQueueFullCounter;
+    @StatsDoc(
+            name = ADD_ENTRY_REJECTED,
+            help = "Counter for rejected adds due to memory limit on a bookie",
+            parent = ADD_ENTRY_REQUEST
+    )
+    private final Counter addEntryRejectedMemoryFullCounter;
+    @StatsDoc(
+            name = ADD_ENTRY_REJECTED,
+            help = "Counter for rejected adds due to OperationRejectedException on a bookie",
+            parent = ADD_ENTRY_REQUEST
+    )
+    private final Counter addEntryRejectedOperationRejectedCounter;
     @StatsDoc(
         name = READ_ENTRY_REQUEST,
         help = "request stats of ReadEntry on a bookie"
@@ -251,7 +267,15 @@ public class RequestStats {
         this.addEntryStats = statsLogger.getThreadScopedOpStatsLogger(ADD_ENTRY);
         this.writeThreadQueuedLatency = statsLogger.getThreadScopedOpStatsLogger(WRITE_THREAD_QUEUED_LATENCY);
         this.addRequestStats = statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST);
-        this.addEntryRejectedCounter = statsLogger.getCounter(ADD_ENTRY_REJECTED);
+        this.addEntryRejectedQueueFullCounter = statsLogger
+                .scopeLabel(LABEL_REJECT_REASON, REJECT_REASON_QUEUE_FULL)
+                .getCounter(ADD_ENTRY_REJECTED);
+        this.addEntryRejectedMemoryFullCounter = statsLogger
+                .scopeLabel(LABEL_REJECT_REASON, REJECT_REASON_MEMORY_FULL)
+                .getCounter(ADD_ENTRY_REJECTED);
+        this.addEntryRejectedOperationRejectedCounter = statsLogger
+                .scopeLabel(LABEL_REJECT_REASON, REJECT_REASON_OPERATION_REJECTED)
+                .getCounter(ADD_ENTRY_REJECTED);
         this.readEntryStats = statsLogger.getThreadScopedOpStatsLogger(READ_ENTRY);
         this.readEntryRejectedCounter = statsLogger.getCounter(READ_ENTRY_REJECTED);
         this.forceLedgerStats = statsLogger.getOpStatsLogger(FORCE_LEDGER);
